@@ -12,6 +12,18 @@ function sha256Hex(text) {
   return createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
+function classifyAbortReason(err) {
+  const s = String(err?.message || err || '').toLowerCase();
+  if (!s) return 'error';
+  if (s.includes('timeout') || s.includes('timed out')) return 'timeout';
+  if (s.includes('host') && (s.includes('left') || s.includes('disconnect'))) return 'host-left';
+  if (s.includes('abort') || s.includes('cancel')) return 'user-aborted';
+  if (s.includes('enospc') || s.includes('eio') || s.includes('write')) return 'sink-write-failed';
+  if (s.includes('ice') || s.includes('peer') || s.includes('network')) return 'ice-failed';
+  if (s.includes('closed') || s.includes('disconnect')) return 'connection-closed';
+  return s.slice(0, 64) || 'error';
+}
+
 function isBinary(data) {
   return (
     data instanceof ArrayBuffer ||
@@ -274,6 +286,7 @@ export async function runRecv(roomInput, flags) {
         event: 'download_aborted',
         room: roomId,
         file: { name: f.name, size: f.size },
+        reason: classifyAbortReason(err),
       });
       throw err;
     }

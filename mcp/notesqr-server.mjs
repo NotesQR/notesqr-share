@@ -20,7 +20,7 @@ function runCli(args, { timeoutMs = 0 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: ROOT,
-      env: process.env,
+      env: { ...process.env, NOTESQR_MCP: '1', NOTESQR_SOURCE: 'mcp' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
