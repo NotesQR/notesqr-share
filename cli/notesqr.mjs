@@ -56,15 +56,20 @@ async function main() {
 
   const [cmd, ...rest] = positional;
 
-  if (cmd === 'send' || cmd === 'put') {
+  if (cmd === 'send') {
     await runSend(rest, flags);
     return;
   }
 
-  if (cmd === 'recv' || cmd === 'get') {
+  if (cmd === 'recv') {
     if (!rest[0]) throw new Error('recv requires room id or URL');
     await runRecv(rest[0], flags);
     return;
+  }
+
+  if (cmd === 'put' || cmd === 'get') {
+    console.error(`[notesqr] "${cmd}" is removed. Use "send" / "recv" (WebRTC P2P).`);
+    process.exit(1);
   }
 
   usage();

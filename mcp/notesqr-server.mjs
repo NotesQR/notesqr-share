@@ -132,30 +132,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  // Back-compat aliases
-  if (name === 'notesqr_share_put' || name === 'notesqr_share_upload') {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Deprecated. Use notesqr_p2p_send (WebRTC, both peers online). HTTP relay put is not the NotesQR P2P product.',
-        },
-      ],
-      isError: true,
-    };
-  }
-  if (name === 'notesqr_share_get' || name === 'notesqr_share_download') {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Deprecated. Use notesqr_p2p_recv (WebRTC, sender must still be online).',
-        },
-      ],
-      isError: true,
-    };
-  }
-
   throw new Error(`Unknown tool: ${name}`);
 });
 

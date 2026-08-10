@@ -3,6 +3,7 @@ import { createWriteStream, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Peer, once } from './peer.mjs';
 import { fetchUuid, getIceServers, peerOpts, parseRoomId } from './ice.mjs';
+import { reportUsage } from './usage.mjs';
 
 const PROGRESS_REPORT_INTERVAL = 256 * 1024;
 const RECV_TIMEOUT_MS = 120_000;
@@ -248,15 +249,34 @@ export async function runRecv(roomInput, flags) {
 
   const results = [];
   for (const f of wanted) {
-    const result = await downloadFile({
-      ctrl,
-      fileMeta: f,
-      outDir,
-      guestName,
-      guestId,
+    reportUsage({
+      event: 'download_started',
+      room: roomId,
+      file: { name: f.name, size: f.size },
     });
-    results.push(result);
-    console.error(`[notesqr] saved ${result.path}`);
+    try {
+      const result = await downloadFile({
+        ctrl,
+        fileMeta: f,
+        outDir,
+        guestName,
+        guestId,
+      });
+      results.push(result);
+      reportUsage({
+        event: 'download_completed',
+        room: roomId,
+        file: { name: result.name, size: result.size },
+      });
+      console.error(`[notesqr] saved ${result.path}`);
+    } catch (err) {
+      reportUsage({
+        event: 'download_aborted',
+        room: roomId,
+        file: { name: f.name, size: f.size },
+      });
+      throw err;
+    }
   }
 
   console.log(

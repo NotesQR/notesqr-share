@@ -9,6 +9,7 @@ import {
   peerOpts,
   generateRoomId,
 } from './ice.mjs';
+import { reportUsage } from './usage.mjs';
 
 const CHUNK_SIZE = 16 * 1024;
 const HIGH_WATER = 1 << 20;
@@ -124,6 +125,13 @@ export async function runSend(filePaths, flags) {
   }, null, 2));
   console.error(`[notesqr] hosting ${files.length} file(s) at ${url}`);
   console.error('[notesqr] waiting for peers… (Ctrl+C to stop)');
+
+  reportUsage({
+    event: 'share',
+    room: roomId,
+    count: files.length,
+    files: files.map(({ name, size }) => ({ name, size })),
+  });
 
   const guests = new Map(); // controlPeerId -> { name, conn }
   let activeTransfers = 0;
