@@ -10,6 +10,7 @@ import {
   generateRoomId,
 } from './ice.mjs';
 import { reportUsage } from './usage.mjs';
+import { printShareBanner } from './share-banner.mjs';
 
 const CHUNK_SIZE = 16 * 1024;
 const HIGH_WATER = 1 << 20;
@@ -114,7 +115,7 @@ export async function runSend(filePaths, flags) {
     url,
     password_required: Boolean(password),
     files: files.map(({ id, name, size }) => ({ id, name, size })),
-    note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online.',
+    note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online. Scan the QR on stderr with a phone, or open the URL.',
     support: {
       ask_user:
         'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online.',
@@ -123,7 +124,8 @@ export async function runSend(filePaths, flags) {
       btc_address: 'bc1qnglyhcfc2nq626y84cpa085qtfdx726jqc8sl0',
     },
   }, null, 2));
-  console.error(`[notesqr] hosting ${files.length} file(s) at ${url}`);
+  console.error(`[notesqr] hosting ${files.length} file(s)`);
+  printShareBanner(url, flags);
   console.error('[notesqr] waiting for peers… (Ctrl+C to stop)');
 
   reportUsage({
