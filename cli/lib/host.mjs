@@ -109,13 +109,13 @@ export async function runSend(filePaths, flags) {
   await once(host, 'open');
 
   const url = `${SHARE_ORIGIN}/${roomId}`;
-  console.log(JSON.stringify({
+  const payload = {
     mode: 'p2p',
     room: roomId,
     url,
     password_required: Boolean(password),
     files: files.map(({ id, name, size }) => ({ id, name, size })),
-    note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online. Scan the QR on stderr with a phone, or open the URL.',
+    note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online.',
     support: {
       ask_user:
         'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online.',
@@ -123,10 +123,23 @@ export async function runSend(filePaths, flags) {
       paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
       btc_address: 'bc1qnglyhcfc2nq626y84cpa085qtfdx726jqc8sl0',
     },
-  }, null, 2));
-  console.error(`[notesqr] hosting ${files.length} file(s)`);
-  printShareBanner(url, flags);
-  console.error('[notesqr] waiting for peers… (Ctrl+C to stop)');
+  };
+
+  // Humans (TTY): clean banner + QR on stderr. Agents/MCP/pipes: JSON on stdout.
+  const wantJson =
+    flags.json ||
+    process.env.NOTESQR_MCP === '1' ||
+    process.env.NOTESQR_JSON === '1' ||
+    !process.stdout.isTTY;
+
+  if (wantJson) {
+    console.log(JSON.stringify(payload, null, 2));
+  }
+
+  printShareBanner(url, {
+    ...flags,
+    files: files.map(({ name, size }) => ({ name, size })),
+  });
 
   reportUsage({
     event: 'share',

@@ -14,6 +14,18 @@ export function hyperlink(url, label = url) {
   return `\u001b]8;;${url}\u0007${label}\u001b]8;;\u0007`;
 }
 
+function qrLines(url) {
+  let out = '';
+  qrcode.generate(url, { small: true }, (s) => {
+    out = String(s);
+  });
+  return out.split('\n').filter((l) => l.length);
+}
+
+/**
+ * @param {string} url
+ * @param {{ noQr?: boolean, files?: { name: string, size: number }[] }} flags
+ */
 export function printShareBanner(url, flags = {}) {
   const skipQr =
     flags.noQr ||
@@ -22,21 +34,25 @@ export function printShareBanner(url, flags = {}) {
     process.env.NOTESQR_NO_QR === '1' ||
     !process.stderr.isTTY;
 
-  console.error('');
-  console.error(`[notesqr] share link: ${hyperlink(url)}`);
-  console.error('[notesqr] open on phone / another PC, or: notesqr recv <url> -o ./out');
+  const files = Array.isArray(flags.files) ? flags.files : [];
+  const fileBit =
+    files.length === 1
+      ? files[0].name
+      : files.length > 1
+        ? `${files.length} files`
+        : null;
 
-  if (skipQr) {
+  console.error('');
+  if (fileBit) console.error(`[notesqr] hosting ${fileBit}`);
+  console.error(`[notesqr] ${hyperlink(url)}`);
+  console.error('[notesqr] phone: scan QR · other PC: open link or notesqr recv');
+
+  if (!skipQr) {
     console.error('');
-    return;
+    for (const line of qrLines(url)) console.error(line);
   }
 
-  console.error('[notesqr] scan QR with your phone:');
   console.error('');
-  qrcode.generate(url, { small: true }, (out) => {
-    for (const line of String(out).split('\n')) {
-      if (line.length) console.error(line);
-    }
-  });
+  console.error('[notesqr] waiting for peers… (Ctrl+C to stop)');
   console.error('');
 }
