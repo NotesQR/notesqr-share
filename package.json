@@ -1,7 +1,7 @@
 {
   "name": "notesqr",
-  "version": "2.0.4",
-  "description": "NotesQR WebRTC P2P CLI \u2014 send/recv files with both peers online",
+  "version": "2.0.5",
+  "description": "NotesQR WebRTC P2P CLI — send/recv files with both peers online",
   "type": "module",
   "bin": {
     "notesqr": "./cli/notesqr.mjs",
@@ -20,7 +20,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@roamhq/wrtc": "^0.10.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "license": "MIT",
   "repository": {

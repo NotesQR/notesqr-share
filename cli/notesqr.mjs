@@ -22,6 +22,7 @@ function parseArgs(argv) {
     else if (a === '--file') flags.file = argv[++i];
     else if (a === '-o' || a === '--out') flags.out = argv[++i];
     else if (a === '--once') flags.once = true;
+    else if (a === '--no-qr') flags.noQr = true;
     else if (a === '-h' || a === '--help') flags.help = true;
     else if (a.startsWith('-')) flags[a] = true;
     else positional.push(a);
@@ -37,11 +38,12 @@ Install / run (no global install needed):
   npx -y github:colocoquillo/notesqr-share recv <url> -o ./out
 
 Usage:
-  notesqr send <files...> [--password x] [--name alias] [--once]
+  notesqr send <files...> [--password x] [--name alias] [--once] [--no-qr]
   notesqr recv <room|url> [-o dir] [--password x] [--file name]
 
 Both peers must stay connected until the download finishes.
 Share URL: https://notesqr.com/abc-defg-hij
+On send, prints a clickable link + terminal QR (skip with --no-qr / NOTESQR_NO_QR=1).
 
 Requires Node.js 18+.
 `);
