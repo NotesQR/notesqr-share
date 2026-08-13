@@ -5,7 +5,7 @@
  *   notesqr send <files...> [--password x] [--name alias] [--once]
  *   notesqr recv <room|url> [-o dir] [--password x] [--file name]
  *
- * Prefer: npx -y github:colocoquillo/notesqr-share send ./file.pdf --once
+ * Prefer: npx -y github:NotesQR/notesqr-share send ./file.pdf --once
  */
 
 import { runSend } from './lib/host.mjs';
@@ -35,8 +35,8 @@ function usage() {
   console.log(`NotesQR CLI — WebRTC P2P file transfer
 
 Install / run (no global install needed):
-  npx -y github:colocoquillo/notesqr-share send ./file.pdf --once
-  npx -y github:colocoquillo/notesqr-share recv <url> -o ./out
+  npx -y github:NotesQR/notesqr-share send ./file.pdf --once
+  npx -y github:NotesQR/notesqr-share recv <url> -o ./out
 
 Usage:
   notesqr send <files...> [--password x] [--name alias] [--once] [--no-qr] [--json]
