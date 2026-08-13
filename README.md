@@ -1,4 +1,4 @@
-# notesqr
+# NotesQR
 
 WebRTC **P2P** CLI for [NotesQR](https://notesqr.com). Both peers stay online; bytes never land on NotesQR disks.
 
