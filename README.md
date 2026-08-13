@@ -25,6 +25,8 @@ node cli/notesqr.mjs recv <url> -o ./out
 
 ## Folders
 
+Also available in the **web app, desktop installers, and browser extensions** (Browse → Folder).
+
 `send` accepts directories (recursive). Peers only see **share-relative** paths (never absolute disk paths). `recv` recreates the tree under `-o`.
 
 ```bash
