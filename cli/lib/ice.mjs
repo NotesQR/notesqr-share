@@ -3,30 +3,10 @@ const SIGNAL_HOST = process.env.NOTESQR_SIGNAL_HOST || 'notesqr.com';
 const SIGNAL_PORT = Number(process.env.NOTESQR_SIGNAL_PORT || 443);
 const SIGNAL_SECURE = process.env.NOTESQR_SIGNAL_SECURE !== '0';
 
-const METERED_ICE = [
+const STUN_ICE = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
-  {
-    urls: 'turn:global.relay.metered.ca:80',
-    username: 'e896854d8ba8e690da11f8df',
-    credential: 'wfRJwV8PFhJL+NEW',
-  },
-  {
-    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
-    username: 'e896854d8ba8e690da11f8df',
-    credential: 'wfRJwV8PFhJL+NEW',
-  },
-  {
-    urls: 'turn:global.relay.metered.ca:443',
-    username: 'e896854d8ba8e690da11f8df',
-    credential: 'wfRJwV8PFhJL+NEW',
-  },
-  {
-    urls: 'turns:global.relay.metered.ca:443?transport=tcp',
-    username: 'e896854d8ba8e690da11f8df',
-    credential: 'wfRJwV8PFhJL+NEW',
-  },
 ];
 
 let cachedCred = null;
@@ -40,7 +20,7 @@ async function fetchUuid() {
 }
 
 async function getIceServers() {
-  const servers = [...METERED_ICE];
+  const servers = [...STUN_ICE];
   try {
     const now = Math.floor(Date.now() / 1000);
     if (!cachedCred || cachedCred.exp <= now) {
@@ -51,22 +31,26 @@ async function getIceServers() {
       const payload = JSON.parse(
         Buffer.from(data.token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
       );
+      const turnHost =
+        (typeof data.turn_host === 'string' && data.turn_host.trim()) || SIGNAL_HOST;
       cachedCred = {
         username: payload.username,
         credential: payload.credential,
         exp: payload.exp - 10,
+        turnHost,
       };
     }
+    const host = cachedCred.turnHost;
     servers.push(
-      { urls: `stun:${SIGNAL_HOST}:3478` },
+      { urls: `stun:${host}:3478` },
       {
-        urls: [`turn:${SIGNAL_HOST}:3478`, `turn:${SIGNAL_HOST}:3478?transport=tcp`],
+        urls: [`turn:${host}:3478`, `turn:${host}:3478?transport=tcp`],
         username: cachedCred.username,
         credential: cachedCred.credential,
       }
     );
   } catch (err) {
-    console.warn('[notesqr] host TURN unavailable, Metered/STUN only:', err.message);
+    console.warn('[notesqr] host TURN unavailable; STUN-only:', err.message);
   }
   return servers;
 }
@@ -82,8 +66,9 @@ function peerOpts(iceServers) {
 
 function generateRoomId() {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
   let s = '';
-  for (let i = 0; i < 10; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < 10; i++) s += alphabet[bytes[i] % alphabet.length];
   return `${s.slice(0, 3)}-${s.slice(3, 7)}-${s.slice(7, 10)}`;
 }
 
