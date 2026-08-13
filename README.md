@@ -22,6 +22,16 @@ node cli/notesqr.mjs send ./file.pdf --once
 node cli/notesqr.mjs recv <url> -o ./out
 ```
 
+
+## Folders
+
+`send` accepts directories (recursive). Peers only see **share-relative** paths (never absolute disk paths). `recv` recreates the tree under `-o`.
+
+```bash
+npx -y github:NotesQR/notesqr-share send ./project/ README.md --once
+npx -y github:NotesQR/notesqr-share recv <room|url> -o ./out
+```
+
 ## MCP
 
 ```json

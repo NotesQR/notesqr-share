@@ -39,7 +39,7 @@ Install / run (no global install needed):
   npx -y github:NotesQR/notesqr-share recv <url> -o ./out
 
 Usage:
-  notesqr send <files...> [--password x] [--name alias] [--once] [--no-qr] [--json]
+  notesqr send <files|folders...> [--password x] [--name alias] [--once] [--no-qr] [--json]
   notesqr recv <room|url> [-o dir] [--password x] [--file name]
 
 Both peers must stay connected until the download finishes.

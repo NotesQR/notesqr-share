@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname } from 'node:path';
 import { Peer, once } from './peer.mjs';
 import { fetchUuid, getIceServers, peerOpts, parseRoomId } from './ice.mjs';
 import { reportUsage } from './usage.mjs';
+import { getIcePath } from './ice-path.mjs';
+import { pathBasename, safeJoinOut, sanitizeRelPath } from './paths.mjs';
 
 const PROGRESS_REPORT_INTERVAL = 256 * 1024;
 const RECV_TIMEOUT_MS = 120_000;
@@ -81,17 +83,34 @@ async function downloadFile({ ctrl, fileMeta, outDir, guestName, guestId }) {
     let expected = 0;
     let transferred = 0;
     let name = fileMeta.name;
+    let relPath = sanitizeRelPath(fileMeta.path) || sanitizeRelPath(fileMeta.name) || name;
+    let outPath = null;
     let lastReport = 0;
     let settled = false;
     let activeConn = null;
     let timer = null;
+    let startedAt = 0; // set on header — throughput excludes ICE/handshake
 
-    const finish = (err) => {
+    const transferStats = () => {
+      const duration_ms = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+      const bps =
+        duration_ms > 0 ? Math.floor((transferred * 1000) / duration_ms) : undefined;
+      return { duration_ms, bps, bytes_received: transferred };
+    };
+
+    const finish = async (err) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
 
-      const outPath = join(outDir, name);
+      let ice_path = 'unknown';
+      try {
+        ice_path = await getIcePath(activeConn?.peerConnection);
+      } catch {
+        /* */
+      }
+
+      const stats = transferStats();
       endStream(writeStream)
         .catch(() => {})
         .then(() => {
@@ -105,8 +124,21 @@ async function downloadFile({ ctrl, fileMeta, outDir, guestName, guestId }) {
           } catch {
             /* */
           }
-          if (err) reject(err);
-          else resolve({ name, size: transferred, path: outPath });
+          if (err) {
+            err.ice_path = ice_path;
+            err.duration_ms = stats.duration_ms;
+            err.bps = stats.bps;
+            err.bytes_received = stats.bytes_received;
+            reject(err);
+          } else
+            resolve({
+              name: pathBasename(relPath) || name,
+              relPath,
+              size: transferred,
+              path: outPath,
+              ice_path,
+              ...stats,
+            });
         });
     };
 
@@ -146,10 +178,22 @@ async function downloadFile({ ctrl, fileMeta, outDir, guestName, guestId }) {
         const data = parseMaybeJson(raw);
         if (data?.type === 'header') {
           name = data.name || name;
+          relPath =
+            sanitizeRelPath(data.path) ||
+            sanitizeRelPath(data.name) ||
+            sanitizeRelPath(relPath) ||
+            name;
           expected = Number(data.size) || 0;
-          mkdirSync(outDir, { recursive: true });
-          writeStream = createWriteStream(join(outDir, name));
+          try {
+            outPath = safeJoinOut(outDir, relPath);
+          } catch (err) {
+            finish(err);
+            return;
+          }
+          mkdirSync(dirname(outPath), { recursive: true });
+          writeStream = createWriteStream(outPath);
           transferred = 0;
+          startedAt = Date.now();
           return;
         }
         if (data?.type === 'end') {
@@ -241,7 +285,7 @@ export async function runRecv(roomInput, flags) {
   });
 
   const connectPayload = { name: guestName };
-  if (password) connectPayload.password = sha256Hex(password);
+  if (password) connectPayload.password = sha256Hex(`notesqr:v1:${roomId}:${password}`);
   ctrl.send({ 'webrtc-connect': connectPayload });
   await sessionReady;
 
@@ -261,11 +305,6 @@ export async function runRecv(roomInput, flags) {
 
   const results = [];
   for (const f of wanted) {
-    reportUsage({
-      event: 'download_started',
-      room: roomId,
-      file: { name: f.name, size: f.size },
-    });
     try {
       const result = await downloadFile({
         ctrl,
@@ -275,18 +314,29 @@ export async function runRecv(roomInput, flags) {
         guestId,
       });
       results.push(result);
+      // One line per file download (completed/aborted only — no started noise).
       reportUsage({
         event: 'download_completed',
         room: roomId,
+        download_mode: 'single',
         file: { name: result.name, size: result.size },
+        ice_path: result.ice_path,
+        bytes_received: result.bytes_received ?? result.size,
+        duration_ms: result.duration_ms,
+        bps: result.bps,
       });
       console.error(`[notesqr] saved ${result.path}`);
     } catch (err) {
       reportUsage({
         event: 'download_aborted',
         room: roomId,
+        download_mode: 'single',
         file: { name: f.name, size: f.size },
         reason: classifyAbortReason(err),
+        ice_path: err.ice_path,
+        bytes_received: err.bytes_received,
+        duration_ms: err.duration_ms,
+        bps: err.bps,
       });
       throw err;
     }
@@ -303,7 +353,7 @@ export async function runRecv(roomInput, flags) {
             'NotesQR is free. If this helped, please consider donating — it keeps signaling online.',
           donate_url: 'https://notesqr.com/donate',
           paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
-          btc_address: 'bc1qnglyhcfc2nq626y84cpa085qtfdx726jqc8sl0',
+          btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',
         },
       },
       null,
