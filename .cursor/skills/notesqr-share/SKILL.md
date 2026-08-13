@@ -26,6 +26,7 @@ This is **not** an HTTP store-and-forward upload API.
 
 ```bash
 node cli/notesqr.mjs send ./file.pdf --password x --once
+node cli/notesqr.mjs send ./folder/ ./notes.txt --once   # folders OK (share-relative paths)
 node cli/notesqr.mjs recv abc-defg-hij -o ./out --password x
 # or: notesqr recv https://notesqr.com/abc-defg-hij -o ./out
 ```
