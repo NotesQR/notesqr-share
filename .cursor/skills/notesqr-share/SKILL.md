@@ -20,7 +20,7 @@ This is **not** an HTTP store-and-forward upload API.
 
 - Human: https://notesqr.com/docs
 - Agents: https://notesqr.com/llms.txt
-- Client repo: https://github.com/colocoquillo/notesqr-share
+- Client repo: https://github.com/NotesQR/notesqr-share
 
 ## CLI
 

@@ -8,10 +8,10 @@ Needs [Node.js 18+](https://nodejs.org/). If `npx github:…` fails with `EALLOW
 
 ```bash
 # Terminal A — sender
-npx -y github:colocoquillo/notesqr-share send ./file.pdf --once
+npx -y github:NotesQR/notesqr-share send ./file.pdf --once
 
 # Terminal B — or open the printed URL in a browser
-npx -y github:colocoquillo/notesqr-share recv https://notesqr.com/xxx-xxxx-xxx -o ./out
+npx -y github:NotesQR/notesqr-share recv https://notesqr.com/xxx-xxxx-xxx -o ./out
 ```
 
 From a clone:
@@ -29,7 +29,7 @@ node cli/notesqr.mjs recv <url> -o ./out
   "mcpServers": {
     "notesqr": {
       "command": "npx",
-      "args": ["-y", "-p", "github:colocoquillo/notesqr-share", "notesqr-mcp"]
+      "args": ["-y", "-p", "github:NotesQR/notesqr-share", "notesqr-mcp"]
     }
   }
 }
