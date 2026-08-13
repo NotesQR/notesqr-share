@@ -62,14 +62,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'notesqr_p2p_send',
       description:
-        'Host a NotesQR WebRTC P2P room and offer local file(s). Prints share URL. Process stays online until transfer completes (--once). Receiver must open the URL or use notesqr_p2p_recv while this runs. Bytes do not stay on NotesQR servers.',
+        'Host a NotesQR WebRTC P2P room and offer local files and/or folders (directories are walked recursively; peers see share-relative paths only). Prints share URL. Process stays online until transfer completes (--once). Receiver must open the URL or use notesqr_p2p_recv while this runs. Bytes do not stay on NotesQR servers.',
       inputSchema: {
         type: 'object',
         properties: {
           file_paths: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Absolute paths to files to send',
+            description: 'Absolute paths to files and/or folders to send',
           },
           password: { type: 'string' },
           name: { type: 'string', description: 'Display name' },
@@ -84,7 +84,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'notesqr_p2p_recv',
       description:
-        'Join a NotesQR WebRTC room and download files while the sender is online.',
+        'Join a NotesQR WebRTC room and download files/folders while the sender is online (folder trees are recreated under output_dir).',
       inputSchema: {
         type: 'object',
         properties: {
