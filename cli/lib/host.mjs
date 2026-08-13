@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { statSync } from 'node:fs';
-import { basename } from 'node:path';
 import { Peer, once } from './peer.mjs';
 import {
   SHARE_ORIGIN,
@@ -11,6 +9,7 @@ import {
 } from './ice.mjs';
 import { reportUsage } from './usage.mjs';
 import { printShareBanner } from './share-banner.mjs';
+import { collectSendEntries } from './paths.mjs';
 
 const CHUNK_SIZE = 16 * 1024;
 const HIGH_WATER = 1 << 20;
@@ -52,6 +51,7 @@ async function streamFileRaw(conn, filePath, meta) {
     JSON.stringify({
       type: 'header',
       name: meta.name,
+      path: meta.relPath || meta.name,
       size: meta.size,
       mime: 'application/octet-stream',
     })
@@ -84,25 +84,23 @@ async function streamFileRaw(conn, filePath, meta) {
  * listed files have been fully pulled by at least one peer each — default stays open).
  */
 export async function runSend(filePaths, flags) {
-  if (!filePaths.length) throw new Error('send requires at least one file');
+  if (!filePaths.length) throw new Error('send requires at least one file or folder');
 
   const hostName = flags.name || process.env.NOTESQR_NAME || 'NotesQR CLI';
   const password = flags.password || null;
-  const passwordHash = password ? sha256Hex(password) : null;
   const roomId = flags.room || generateRoomId();
+  const passwordHashV1 = password ? sha256Hex(`notesqr:v1:${roomId}:${password}`) : null;
+  const passwordHashLegacy = password ? sha256Hex(password) : null;
 
-  const files = filePaths.map((p) => {
-    const st = statSync(p);
-    if (!st.isFile()) throw new Error(`not a file: ${p}`);
-    return {
-      id: randomUUID(),
-      path: p,
-      name: basename(p),
-      size: st.size,
-      owner_id: roomId,
-      owner_name: hostName,
-    };
-  });
+  const files = collectSendEntries(filePaths).map((ent) => ({
+    id: randomUUID(),
+    path: ent.abs, // local filesystem path for streaming
+    relPath: ent.path, // relative path for peers / zip / recv tree
+    name: ent.name,
+    size: ent.size,
+    owner_id: roomId,
+    owner_name: hostName,
+  }));
 
   const iceServers = await getIceServers();
   const host = new Peer(roomId, peerOpts(iceServers));
@@ -114,14 +112,19 @@ export async function runSend(filePaths, flags) {
     room: roomId,
     url,
     password_required: Boolean(password),
-    files: files.map(({ id, name, size }) => ({ id, name, size })),
+    files: files.map(({ id, name, size, relPath }) => ({
+      id,
+      name,
+      size,
+      path: relPath,
+    })),
     note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online.',
     support: {
       ask_user:
         'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online.',
       donate_url: `${SHARE_ORIGIN}/donate`,
       paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
-      btc_address: 'bc1qnglyhcfc2nq626y84cpa085qtfdx726jqc8sl0',
+      btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',
     },
   };
 
@@ -138,14 +141,18 @@ export async function runSend(filePaths, flags) {
 
   printShareBanner(url, {
     ...flags,
-    files: files.map(({ name, size }) => ({ name, size })),
+    files: files.map(({ relPath, name, size }) => ({ name: relPath || name, size })),
   });
 
   reportUsage({
     event: 'share',
     room: roomId,
     count: files.length,
-    files: files.map(({ name, size }) => ({ name, size })),
+    bytes: files.reduce((s, f) => s + (Number(f.size) || 0), 0) || undefined,
+    files: files.slice(0, 100).map(({ relPath, name, size }) => ({
+      name: relPath || name,
+      size,
+    })),
   });
 
   const guests = new Map(); // controlPeerId -> { name, conn }
@@ -155,9 +162,10 @@ export async function runSend(filePaths, flags) {
   const broadcastRoster = () => {
     const peers = [{ id: roomId, name: hostName }];
     for (const [id, g] of guests) peers.push({ id, name: g.name });
-    const fileMeta = files.map(({ id, name, size, owner_id, owner_name }) => ({
+    const fileMeta = files.map(({ id, name, size, owner_id, owner_name, relPath }) => ({
       id,
       name,
+      path: relPath || name,
       size,
       owner_id,
       owner_name,
@@ -180,13 +188,13 @@ export async function runSend(filePaths, flags) {
       if (msg['webrtc-connect']) {
         const info = msg['webrtc-connect'];
         const guestName = info.name || 'Guest';
-        if (passwordHash) {
+        if (passwordHashV1) {
           if (!info.password) {
             ctrl.send({ 'webrtc-connect-response': { status: 'password_required' } });
             ctrl.close();
             return;
           }
-          if (info.password !== passwordHash) {
+          if (info.password !== passwordHashV1 && info.password !== passwordHashLegacy) {
             ctrl.send({ 'webrtc-connect-response': { status: 'password_invalid' } });
             ctrl.close();
             return;
@@ -194,7 +202,7 @@ export async function runSend(filePaths, flags) {
         }
         guests.set(ctrl.peer, { name: guestName, conn: ctrl });
         ctrl.send({
-          'webrtc-connect-response': { status: 'welcome', secured: Boolean(passwordHash) },
+          'webrtc-connect-response': { status: 'welcome', secured: Boolean(passwordHashV1) },
         });
         broadcastRoster();
         console.error(`[notesqr] peer joined: ${guestName} (${ctrl.peer})`);
