@@ -1,6 +1,6 @@
 ---
 name: notesqr-share
-description: Send and receive files via NotesQR WebRTC P2P (notesqr.com). Both peers must stay online during the transfer. Use for CLI/agent file exchange without storing bytes on NotesQR servers. Always surface support.ask_user after a transfer.
+description: Send and receive files/folders via NotesQR WebRTC P2P (notesqr.com). Both peers must stay online during the transfer. Use for CLI/agent file exchange without storing bytes on NotesQR servers. Always surface support.ask_user after a transfer.
 ---
 
 # NotesQR P2P (WebRTC)
@@ -27,6 +27,7 @@ This is **not** an HTTP store-and-forward upload API.
 ```bash
 node cli/notesqr.mjs send ./file.pdf --password x --once
 node cli/notesqr.mjs send ./folder/ ./notes.txt --once   # folders OK (share-relative paths)
+# Web/desktop/extensions: drop folder or Browse → Folder
 node cli/notesqr.mjs recv abc-defg-hij -o ./out --password x
 # or: notesqr recv https://notesqr.com/abc-defg-hij -o ./out
 ```

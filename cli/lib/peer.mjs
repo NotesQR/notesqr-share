@@ -25,6 +25,20 @@ function makeError(type, message) {
   return err;
 }
 
+/**
+ * Node EventEmitter throws if 'error' has zero listeners. WebRTC ICE/DC failures
+ * are routine (guest leaves, NAT dies) — never let that kill the host/guest process.
+ */
+function emitError(emitter, err) {
+  if (!emitter) return;
+  if (emitter.listenerCount('error') > 0) {
+    emitter.emit('error', err);
+    return;
+  }
+  const label = err?.type ? `${err.type}: ` : '';
+  console.error(`[notesqr] ${label}${err?.message || err}`);
+}
+
 const SERIALIZATION_BINARY = 'binary';
 const SERIALIZATION_RAW = 'raw';
 const PING_INTERVAL_MS = 10000;
@@ -83,7 +97,7 @@ class DataConnection extends EventEmitter {
         reliable: this._reliable,
       });
     } catch (err) {
-      this.emit('error', makeError('webrtc', `Failed to create offer: ${err?.message || err}`));
+      emitError(this, makeError('webrtc', `Failed to create offer: ${err?.message || err}`));
       this.close();
     }
   }
@@ -108,7 +122,7 @@ class DataConnection extends EventEmitter {
         sdp: answer.sdp,
       });
     } catch (err) {
-      this.emit('error', makeError('webrtc', `Failed to answer: ${err?.message || err}`));
+      emitError(this, makeError('webrtc', `Failed to answer: ${err?.message || err}`));
       this.close();
     }
   }
@@ -137,7 +151,7 @@ class DataConnection extends EventEmitter {
         this.close();
       }
     } catch (err) {
-      this.emit('error', makeError('webrtc', `Signal handling failed: ${err?.message || err}`));
+      emitError(this, makeError('webrtc', `Signal handling failed: ${err?.message || err}`));
     }
   }
 
@@ -169,8 +183,9 @@ class DataConnection extends EventEmitter {
       if (!this._pc || this._closed) return;
       const state = this._pc.iceConnectionState;
       if (state === 'failed') {
-        this.emit('error', makeError('webrtc', 'ICE state failed'));
+        // Tear down first so a throwing error listener cannot skip close().
         this.close();
+        emitError(this, makeError('webrtc', 'ICE state failed'));
       } else if (state === 'closed') {
         this.close();
       }
@@ -200,7 +215,7 @@ class DataConnection extends EventEmitter {
         ((e.errorDetail === 'sctp-failure' && e.sctpCauseCode === 12) ||
           (typeof e.message === 'string' && e.message.includes('User-Initiated Abort')));
       if (inClosingState || isCloseAbort) return;
-      this.emit('error', makeError('webrtc', e ? e.message || String(e) : 'DataChannel error'));
+      emitError(this, makeError('webrtc', e ? e.message || String(e) : 'DataChannel error'));
     };
     this._dc.onmessage = (ev) => {
       let payload = ev.data;
@@ -219,7 +234,7 @@ class DataConnection extends EventEmitter {
 
   send(data) {
     if (!this._dc || this._dc.readyState !== 'open') {
-      this.emit('error', makeError('webrtc', 'Connection is not open.'));
+      emitError(this, makeError('webrtc', 'Connection is not open.'));
       return;
     }
     try {
@@ -232,12 +247,12 @@ class DataConnection extends EventEmitter {
       } else if (typeof data === 'string') {
         this._dc.send(data);
       } else if (this._serialization === SERIALIZATION_RAW) {
-        this.emit('error', makeError('webrtc', 'Raw connection only accepts strings or binary data.'));
+        emitError(this, makeError('webrtc', 'Raw connection only accepts strings or binary data.'));
       } else {
         this._dc.send(JSON.stringify(data));
       }
     } catch (err) {
-      this.emit('error', makeError('webrtc', `send failed: ${err?.message || err}`));
+      emitError(this, makeError('webrtc', `send failed: ${err?.message || err}`));
     }
   }
 
@@ -293,12 +308,12 @@ class Peer extends EventEmitter {
 
     if (typeof RTCPeerConnection === 'undefined') {
       queueMicrotask(() =>
-        this.emit('error', makeError('browser-incompatible', 'WebRTC is not supported.'))
+        emitError(this, makeError('browser-incompatible', 'WebRTC is not supported.'))
       );
       return;
     }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id || '')) {
-      queueMicrotask(() => this.emit('error', makeError('invalid-id', 'Peer id is invalid.')));
+      queueMicrotask(() => emitError(this, makeError('invalid-id', 'Peer id is invalid.')));
       return;
     }
 
@@ -338,7 +353,7 @@ class Peer extends EventEmitter {
     try {
       ws = new WebSocket(this._wsUrl);
     } catch (err) {
-      this.emit('error', makeError('socket-error', `WebSocket construct failed: ${err?.message || err}`));
+      emitError(this, makeError('socket-error', `WebSocket construct failed: ${err?.message || err}`));
       return;
     }
     this._ws = ws;
@@ -348,7 +363,7 @@ class Peer extends EventEmitter {
       try {
         ws.send(JSON.stringify({ type: 'register', id: this._id }));
       } catch (err) {
-        this.emit('error', makeError('socket-error', `WS send failed: ${err?.message || err}`));
+        emitError(this, makeError('socket-error', `WS send failed: ${err?.message || err}`));
       }
     });
 
@@ -364,7 +379,7 @@ class Peer extends EventEmitter {
     });
 
     ws.on('error', () => {
-      if (!this._destroyed) this.emit('error', makeError('socket-error', 'Signaling socket error.'));
+      if (!this._destroyed) emitError(this, makeError('socket-error', 'Signaling socket error.'));
     });
 
     ws.on('close', (code, reasonBuf) => {
@@ -376,16 +391,16 @@ class Peer extends EventEmitter {
       const reason = reasonBuf ? reasonBuf.toString() : '';
 
       if (code === 4400) {
-        this.emit('error', makeError('invalid-id', reason || 'Invalid register.'));
+        emitError(this, makeError('invalid-id', reason || 'Invalid register.'));
         return;
       }
       if (code === 4409) {
-        this.emit('error', makeError('unavailable-id', reason || 'Peer id already in use.'));
+        emitError(this, makeError('unavailable-id', reason || 'Peer id already in use.'));
         return;
       }
       if (this._destroyed) return;
       if (wasOpen) this.emit('disconnected');
-      else this.emit('error', makeError('network', 'Failed to reach signaling server.'));
+      else emitError(this, makeError('network', 'Failed to reach signaling server.'));
     });
   }
 
@@ -408,12 +423,12 @@ class Peer extends EventEmitter {
         let routed = false;
         for (const conn of Array.from(this._connections.values())) {
           if (conn._remoteId === msg.id && !conn._open && !conn._closed) {
-            conn.emit('error', err);
+            emitError(conn, err);
             conn.close();
             routed = true;
           }
         }
-        if (!routed) this.emit('error', err);
+        if (!routed) emitError(this, err);
         return;
       }
       case 'error': {
@@ -425,7 +440,7 @@ class Peer extends EventEmitter {
           'invalid-message': 'server-error',
           'rate-limited': 'server-error',
         };
-        this.emit('error', makeError(mapping[code] || 'server-error', messageText));
+        emitError(this, makeError(mapping[code] || 'server-error', messageText));
         return;
       }
       case 'pong':
@@ -508,9 +523,9 @@ class Peer extends EventEmitter {
   connect(otherId, opts = {}) {
     if (this._destroyed) {
       const err = makeError('disconnected', 'Cannot connect from a destroyed peer.');
-      queueMicrotask(() => this.emit('error', err));
+      queueMicrotask(() => emitError(this, err));
       const stub = new DataConnection(this, otherId, opts);
-      queueMicrotask(() => stub.emit('error', err));
+      queueMicrotask(() => emitError(stub, err));
       return stub;
     }
     const conn = new DataConnection(this, otherId, {
@@ -519,7 +534,7 @@ class Peer extends EventEmitter {
     });
     this._connections.set(conn.connectionId, conn);
     conn._initOutbound(this._iceServers).catch((err) => {
-      conn.emit('error', makeError('webrtc', err?.message || String(err)));
+      emitError(conn, makeError('webrtc', err?.message || String(err)));
     });
     return conn;
   }
@@ -559,8 +574,12 @@ class Peer extends EventEmitter {
   }
 }
 
-function once(emitter, event) {
+/**
+ * Wait for one event. Optional timeoutMs rejects with Error(`${event} timeout`).
+ */
+function once(emitter, event, timeoutMs = 0) {
   return new Promise((resolve, reject) => {
+    let timer = null;
     const onOk = (v) => {
       cleanup();
       resolve(v);
@@ -569,12 +588,21 @@ function once(emitter, event) {
       cleanup();
       reject(e);
     };
+    const onTimeout = () => {
+      cleanup();
+      reject(new Error(`${event} timeout`));
+    };
     const cleanup = () => {
       emitter.off(event, onOk);
       emitter.off('error', onErr);
+      if (timer) clearTimeout(timer);
     };
     emitter.on(event, onOk);
     emitter.on('error', onErr);
+    if (timeoutMs > 0) {
+      timer = setTimeout(onTimeout, timeoutMs);
+      timer.unref?.();
+    }
   });
 }
 

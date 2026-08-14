@@ -1,7 +1,7 @@
 {
   "name": "notesqr",
-  "version": "2.0.8",
-  "description": "NotesQR WebRTC P2P CLI \u2014 send/recv files and folders with both peers online",
+  "version": "2.1.0",
+  "description": "NotesQR WebRTC P2P CLI \u2014 adaptive chunks, zip_batch, folder transfers",
   "type": "module",
   "bin": {
     "notesqr": "./cli/notesqr.mjs",

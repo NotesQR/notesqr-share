@@ -10,10 +10,18 @@ import {
 import { reportUsage } from './usage.mjs';
 import { printShareBanner } from './share-banner.mjs';
 import { collectSendEntries } from './paths.mjs';
-
-const CHUNK_SIZE = 16 * 1024;
-const HIGH_WATER = 1 << 20;
-const LOW_WATER = 1 << 18;
+import {
+  HIGH_WATER,
+  LOW_WATER,
+  OUTBOUND_BYTES_FLOOR,
+  OUTBOUND_CONCURRENCY_BASE,
+  OUTBOUND_CONCURRENCY_HARD_MAX,
+  CONNECT_TIMEOUT_MS,
+  chunkWireItems,
+  initialChunkSize,
+  nextSmallerChunk,
+  isMessageTooLargeError,
+} from './transfer.mjs';
 
 function sha256Hex(text) {
   return createHash('sha256').update(String(text), 'utf8').digest('hex');
@@ -41,11 +49,14 @@ function awaitDrain(dc) {
   });
 }
 
+/** Adaptive chunk ladder (same as web file.js) — probe SCTP, step down on too-large. */
 async function streamFileRaw(conn, filePath, meta) {
   const { open } = await import('node:fs/promises');
   const dc = conn.dataChannel;
   if (!dc) throw new Error('no data channel');
   dc.bufferedAmountLowThreshold = LOW_WATER;
+
+  let chunkSize = initialChunkSize(conn);
 
   dc.send(
     JSON.stringify({
@@ -59,14 +70,32 @@ async function streamFileRaw(conn, filePath, meta) {
 
   const fh = await open(filePath, 'r');
   try {
-    const buf = Buffer.allocUnsafe(CHUNK_SIZE);
     let offset = 0;
     while (offset < meta.size) {
       if (dc.readyState !== 'open') throw new Error('datachannel closed mid-transfer');
-      const { bytesRead } = await fh.read(buf, 0, Math.min(CHUNK_SIZE, meta.size - offset), offset);
+      const want = Math.min(chunkSize, meta.size - offset);
+      const buf = Buffer.allocUnsafe(want);
+      const { bytesRead } = await fh.read(buf, 0, want, offset);
       if (!bytesRead) break;
-      await awaitDrain(dc);
-      dc.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead));
+
+      let sent = false;
+      while (!sent) {
+        await awaitDrain(dc);
+        try {
+          dc.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + bytesRead));
+          sent = true;
+        } catch (err) {
+          if (!isMessageTooLargeError(err)) throw err;
+          const next = nextSmallerChunk(chunkSize);
+          if (!next) throw err;
+          console.error(`[notesqr] chunk ${chunkSize} too large; stepping down to ${next}`);
+          chunkSize = next;
+          // Re-read this offset with the smaller size on the next outer iteration.
+          break;
+        }
+      }
+      if (!sent) continue; // stepped down — retry same offset with smaller chunk
+
       offset += bytesRead;
       const pct = Math.floor((offset / meta.size) * 100);
       process.stderr.write(`\r[notesqr] sending ${meta.name}: ${pct}%`);
@@ -104,7 +133,7 @@ export async function runSend(filePaths, flags) {
 
   const iceServers = await getIceServers();
   const host = new Peer(roomId, peerOpts(iceServers));
-  await once(host, 'open');
+  await once(host, 'open', CONNECT_TIMEOUT_MS);
 
   const url = `${SHARE_ORIGIN}/${roomId}`;
   const payload = {
@@ -128,7 +157,6 @@ export async function runSend(filePaths, flags) {
     },
   };
 
-  // Humans (TTY): clean banner + QR on stderr. Agents/MCP/pipes: JSON on stdout.
   const wantJson =
     flags.json ||
     process.env.NOTESQR_MCP === '1' ||
@@ -156,10 +184,76 @@ export async function runSend(filePaths, flags) {
   });
 
   const guests = new Map(); // controlPeerId -> { name, conn }
-  let activeTransfers = 0;
   const completed = new Set(); // fileId that finished at least once
 
-  const broadcastRoster = () => {
+  // Adaptive outbound fan-out (web parity).
+  let outboundActive = 0;
+  let outboundActiveBytes = 0;
+  const outboundQueue = [];
+
+  // zip_batch: one Peer+DC per remote zip peer_id (web folder downloads).
+  const zipSendSessions = new Map(); // zipPeerId -> { peer, conn, chain }
+
+  const canStartOutbound = (file) => {
+    if (outboundActive >= OUTBOUND_CONCURRENCY_HARD_MAX) return false;
+    if (outboundActive < OUTBOUND_CONCURRENCY_BASE) return true;
+    return outboundActiveBytes < OUTBOUND_BYTES_FLOOR;
+  };
+
+  const notifyQueued = (req) => {
+    const payload = { file_id: req.file_id, requester_id: req.requester_id };
+    const g = guests.get(req.requester_id);
+    if (g?.conn?.open) {
+      try {
+        g.conn.send({ 'webrtc-file-queued': payload });
+      } catch {
+        /* */
+      }
+    }
+  };
+
+  const destroyZipSession = (zipPeerId) => {
+    const s = zipSendSessions.get(zipPeerId);
+    if (!s) return;
+    zipSendSessions.delete(zipPeerId);
+    try {
+      s.conn?.close();
+    } catch {
+      /* */
+    }
+    try {
+      s.peer?.destroy();
+    } catch {
+      /* */
+    }
+  };
+
+  const ensureZipSendSession = async (zipPeerId) => {
+    const existing = zipSendSessions.get(zipPeerId);
+    if (existing?.conn?.open) return existing;
+    if (existing) destroyZipSession(zipPeerId);
+
+    const sendId = await fetchUuid();
+    const sendPeer = new Peer(sendId, peerOpts(await getIceServers()));
+    sendPeer.on('error', (err) => {
+      console.error(`[notesqr] zip-send peer error: ${err.message}`);
+    });
+    await once(sendPeer, 'open', CONNECT_TIMEOUT_MS);
+    const raw = sendPeer.connect(zipPeerId, { serialization: 'raw', reliable: true });
+    raw.on('error', (err) => {
+      console.error(`[notesqr] zip-send link error: ${err.message}`);
+    });
+    await once(raw, 'open', CONNECT_TIMEOUT_MS);
+    const session = { peer: sendPeer, conn: raw, chain: Promise.resolve() };
+    raw.on('close', () => {
+      if (zipSendSessions.get(zipPeerId) === session) destroyZipSession(zipPeerId);
+    });
+    zipSendSessions.set(zipPeerId, session);
+    return session;
+  };
+
+  const sendRosterTo = (conn) => {
+    if (!conn?.open) return;
     const peers = [{ id: roomId, name: hostName }];
     for (const [id, g] of guests) peers.push({ id, name: g.name });
     const fileMeta = files.map(({ id, name, size, owner_id, owner_name, relPath }) => ({
@@ -170,19 +264,126 @@ export async function runSend(filePaths, flags) {
       owner_id,
       owner_name,
     }));
-    for (const g of guests.values()) {
-      if (g.conn?.open) {
-        g.conn.send({ 'webrtc-peers': peers, 'webrtc-files': fileMeta });
+    try {
+      conn.send({ 'webrtc-peers': peers });
+    } catch {
+      /* */
+    }
+    const batches = chunkWireItems(fileMeta);
+    for (let i = 0; i < batches.length; i++) {
+      try {
+        if (i === 0) conn.send({ 'webrtc-files': batches[i] });
+        else conn.send({ 'webrtc-file-add': batches[i] });
+      } catch (err) {
+        console.error(`[notesqr] roster batch failed: ${err.message}`);
+        break;
       }
     }
   };
 
+  const broadcastRoster = () => {
+    for (const g of guests.values()) sendRosterTo(g.conn);
+  };
+
+  const maybeOnceExit = () => {
+    if (flags.once && completed.size >= files.length && outboundActive === 0) {
+      console.error('[notesqr] --once: all files transferred, exiting');
+      for (const id of [...zipSendSessions.keys()]) destroyZipSession(id);
+      host.destroy();
+      process.exit(0);
+    }
+  };
+
+  const runTransfer = async (req, file) => {
+    const recvPeerId = req.peer_id;
+    const zipBatch = !!req.zip_batch;
+    console.error(
+      `[notesqr] transfer start: ${file.name} → ${req.requester_name || req.requester_id}` +
+        (zipBatch ? ' (zip_batch)' : '')
+    );
+
+    if (zipBatch) {
+      const session = await ensureZipSendSession(recvPeerId);
+      // Serialize entries on the shared DC (web multiplexes header/chunks/end).
+      const run = session.chain.then(() => streamFileRaw(session.conn, file.path, file));
+      session.chain = run.catch(() => {});
+      await run;
+      completed.add(file.id);
+      return;
+    }
+
+    let sendPeer;
+    let raw;
+    try {
+      const sendId = await fetchUuid();
+      sendPeer = new Peer(sendId, peerOpts(await getIceServers()));
+      sendPeer.on('error', (err) => {
+        console.error(`[notesqr] transfer peer error: ${err.message}`);
+      });
+      await once(sendPeer, 'open', CONNECT_TIMEOUT_MS);
+      raw = sendPeer.connect(recvPeerId, { serialization: 'raw', reliable: true });
+      raw.on('error', (err) => {
+        console.error(`[notesqr] transfer link error: ${err.message}`);
+      });
+      await once(raw, 'open', CONNECT_TIMEOUT_MS);
+      raw.on('data', () => {});
+      await streamFileRaw(raw, file.path, file);
+      completed.add(file.id);
+    } finally {
+      try {
+        raw?.close();
+      } catch {
+        /* */
+      }
+      try {
+        sendPeer?.destroy();
+      } catch {
+        /* */
+      }
+    }
+  };
+
+  const dequeueOutbound = () => {
+    while (outboundQueue.length > 0) {
+      const next = outboundQueue[0];
+      const file = files.find((f) => f.id === next.file_id);
+      if (!file) {
+        outboundQueue.shift();
+        continue;
+      }
+      if (!canStartOutbound(file)) break;
+      outboundQueue.shift();
+      startOutbound(next, file);
+    }
+  };
+
+  const startOutbound = (req, file) => {
+    const size = Number(file.size) || 0;
+    outboundActive += 1;
+    outboundActiveBytes += size;
+    Promise.resolve()
+      .then(() => runTransfer(req, file))
+      .catch((err) => {
+        console.error(`[notesqr] transfer failed: ${err?.message || err}`);
+      })
+      .finally(() => {
+        outboundActive = Math.max(0, outboundActive - 1);
+        outboundActiveBytes = Math.max(0, outboundActiveBytes - size);
+        dequeueOutbound();
+        maybeOnceExit();
+      });
+  };
+
   host.on('connection', (ctrl) => {
+    ctrl.on('error', (err) => {
+      console.error(`[notesqr] control link error (${ctrl.peer}): ${err.message}`);
+    });
+
     ctrl.on('open', () => {
       /* wait for webrtc-connect */
     });
 
-    ctrl.on('data', async (msg) => {
+    const onCtrlData = async (msg) => {
       if (!msg || typeof msg !== 'object') return;
 
       if (msg['webrtc-connect']) {
@@ -204,7 +405,7 @@ export async function runSend(filePaths, flags) {
         ctrl.send({
           'webrtc-connect-response': { status: 'welcome', secured: Boolean(passwordHashV1) },
         });
-        broadcastRoster();
+        sendRosterTo(ctrl);
         console.error(`[notesqr] peer joined: ${guestName} (${ctrl.peer})`);
         return;
       }
@@ -223,49 +424,22 @@ export async function runSend(filePaths, flags) {
           console.error(`[notesqr] unknown file_id ${req.file_id}`);
           return;
         }
-        const recvPeerId = req.peer_id;
-        if (!recvPeerId) return;
+        if (!req.peer_id) return;
 
-        activeTransfers += 1;
-        console.error(
-          `[notesqr] transfer start: ${file.name} → ${req.requester_name || req.requester_id}`
-        );
-
-        let sendPeer;
-        try {
-          const sendId = await fetchUuid();
-          sendPeer = new Peer(sendId, peerOpts(await getIceServers()));
-          await once(sendPeer, 'open');
-          const raw = sendPeer.connect(recvPeerId, { serialization: 'raw', reliable: true });
-          await once(raw, 'open');
-          raw.on('data', (d) => {
-            if (d && typeof d === 'object' && d.type === 'progress') {
-              /* optional */
-            }
-          });
-          await streamFileRaw(raw, file.path, file);
-          completed.add(file.id);
-          try {
-            raw.close();
-          } catch {
-            /* */
-          }
-        } catch (err) {
-          console.error(`[notesqr] transfer failed: ${err.message}`);
-        } finally {
-          try {
-            sendPeer?.destroy();
-          } catch {
-            /* */
-          }
-          activeTransfers -= 1;
-          if (flags.once && completed.size >= files.length && activeTransfers === 0) {
-            console.error('[notesqr] --once: all files transferred, exiting');
-            host.destroy();
-            process.exit(0);
-          }
+        if (!canStartOutbound(file)) {
+          outboundQueue.push(req);
+          notifyQueued(req);
+          console.error(`[notesqr] queued: ${file.name} (active=${outboundActive})`);
+          return;
         }
+        startOutbound(req, file);
       }
+    };
+
+    ctrl.on('data', (msg) => {
+      Promise.resolve(onCtrlData(msg)).catch((err) => {
+        console.error(`[notesqr] control handler error: ${err?.message || err}`);
+      });
     });
 
     ctrl.on('close', () => {
@@ -292,6 +466,7 @@ export async function runSend(filePaths, flags) {
 
   const shutdown = () => {
     console.error('\n[notesqr] shutting down');
+    for (const id of [...zipSendSessions.keys()]) destroyZipSession(id);
     host.destroy();
     process.exit(0);
   };

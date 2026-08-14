@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
-const MAX_PATH_LEN = 1024;
+const MAX_PATH_LEN = 4096;
 
 /** Sanitize relative path for wire + filesystem writes. */
 export function sanitizeRelPath(raw) {
