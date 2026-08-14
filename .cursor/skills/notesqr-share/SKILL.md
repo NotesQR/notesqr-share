@@ -32,6 +32,8 @@ node cli/notesqr.mjs recv abc-defg-hij -o ./out --password x
 # or: notesqr recv https://notesqr.com/abc-defg-hij -o ./out
 ```
 
+CLI **2.1.0+** matches the web transfer engine (adaptive chunks to 1 MiB, `zip_batch` DC reuse, outbound concurrency). Prefer `npx -y github:NotesQR/notesqr-share` so agents do not reuse a stale cache.
+
 ## MCP
 
 `node mcp/notesqr-server.mjs` → tools `notesqr_p2p_send`, `notesqr_p2p_recv`.
