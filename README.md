@@ -28,7 +28,7 @@ CLI + MCP for [NotesQR](https://notesqr.com). Same rooms as the browser app. Bot
 <p align="center"><em>Donation-funded. If this CLI saved you a WeTransfer upload, <a href="https://notesqr.com/donate">support the project</a>.</em></p>
 
 <p align="center">
-  <a href="https://notesqr.com"><img src="https://raw.githubusercontent.com/NotesQR/NotesQR/NotesQR/media/demo-web.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800"></a>
+  <img src="media/demo-web-20260818.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800">
 </p>
 
 **Current release: 2.1.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
@@ -67,7 +67,7 @@ npx -y github:NotesQR/notesqr-share recv <room|url> -o ./out
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NotesQR/NotesQR/NotesQR/media/gallery-cli-demo.gif" alt="NotesQR CLI: send, share URL or QR, receive" width="800">
+  <img src="media/cli-demo-20260818.gif" alt="NotesQR CLI: send, share URL or QR, receive" width="800">
 </p>
 
 ---
