@@ -1,0 +1,12 @@
+{
+  "name": "notesqr",
+  "version": "2.1.0",
+  "description": "Anonymous WebRTC P2P file and folder sharing via notesqr.com — no signup, any size, mobile-friendly room URLs.",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "notesqr": {
+      "command": "npx",
+      "args": ["-y", "-p", "github:NotesQR/notesqr-share", "notesqr-mcp"]
+    }
+  }
+}

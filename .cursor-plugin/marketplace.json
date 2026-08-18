@@ -1,0 +1,17 @@
+{
+  "name": "notesqr-plugins",
+  "owner": {
+    "name": "NotesQR"
+  },
+  "metadata": {
+    "description": "NotesQR anonymous WebRTC P2P file sharing for Cursor",
+    "version": "2.1.0"
+  },
+  "plugins": [
+    {
+      "name": "notesqr",
+      "source": "./cursor-plugin",
+      "description": "Anonymous P2P file/folder sharing — no signup, any size, mobile-friendly room URLs"
+    }
+  ]
+}

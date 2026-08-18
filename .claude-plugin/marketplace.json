@@ -1,0 +1,18 @@
+{
+  "name": "notesqr-plugins",
+  "owner": {
+    "name": "NotesQR"
+  },
+  "metadata": {
+    "description": "NotesQR anonymous WebRTC P2P file sharing for Claude Code",
+    "version": "2.1.0"
+  },
+  "plugins": [
+    {
+      "name": "notesqr",
+      "description": "Anonymous P2P file/folder sharing — no signup, any size, mobile-friendly room URLs",
+      "source": "./claude-plugin",
+      "version": "2.1.0"
+    }
+  ]
+}

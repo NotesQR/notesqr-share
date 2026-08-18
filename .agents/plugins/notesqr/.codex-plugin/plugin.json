@@ -1,0 +1,32 @@
+{
+  "name": "notesqr",
+  "version": "2.1.0",
+  "description": "Anonymous WebRTC P2P file and folder sharing — no signup, any size, cross-device including mobile browsers.",
+  "author": {
+    "name": "NotesQR",
+    "url": "https://notesqr.com"
+  },
+  "homepage": "https://notesqr.com/use-cases/cli-mcp-agents",
+  "repository": "https://github.com/NotesQR/notesqr-share",
+  "license": "MIT",
+  "keywords": ["notesqr", "p2p", "webrtc", "file transfer", "anonymous", "mobile", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "NotesQR P2P Share",
+    "shortDescription": "Anonymous P2P file sharing — no signup, any size",
+    "longDescription": "Share files and folders peer-to-peer via WebRTC. Host a room with notesqr_p2p_send, share the notesqr.com URL (works on mobile browsers), download with notesqr_p2p_recv. Both peers must stay online; bytes are not stored on NotesQR servers.",
+    "developerName": "NotesQR",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://notesqr.com/",
+    "privacyPolicyURL": "https://notesqr.com/privacy",
+    "termsOfServiceURL": "https://notesqr.com/terms",
+    "defaultPrompt": [
+      "Send this build APK to my phone with NotesQR",
+      "Host these QA logs in a P2P room and give me the URL",
+      "Download files from this NotesQR room URL"
+    ],
+    "brandColor": "#1e293b"
+  }
+}

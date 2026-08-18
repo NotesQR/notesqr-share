@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notesqr": {
+      "command": "npx",
+      "args": ["-y", "-p", "github:NotesQR/notesqr-share", "notesqr-mcp"]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "notesqr",
+  "displayName": "NotesQR P2P Share",
+  "version": "2.1.0",
+  "description": "Anonymous WebRTC P2P file and folder sharing — no signup, any size, cross-device including mobile. MCP send/recv while both peers stay online.",
+  "author": {
+    "name": "NotesQR",
+    "email": "support@notesqr.com"
+  },
+  "homepage": "https://notesqr.com/use-cases/cli-mcp-agents",
+  "repository": "https://github.com/NotesQR/notesqr-share",
+  "license": "MIT",
+  "keywords": [
+    "notesqr",
+    "p2p",
+    "webrtc",
+    "file transfer",
+    "anonymous",
+    "no signup",
+    "mobile",
+    "folder share",
+    "app testing",
+    "mcp"
+  ]
+}

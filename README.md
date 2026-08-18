@@ -58,5 +58,9 @@ npx -y github:NotesQR/notesqr-share recv <room|url> -o ./out
 }
 ```
 
+## Grok Build plugin
+
+Install from the [xAI Plugin Marketplace](https://github.com/xai-org/plugin-marketplace) as **notesqr**, or use the manifest in [`grok-plugin/`](grok-plugin/) (MCP + skills + `/send` / `/recv` commands). Anonymous P2P sharing — no signup, any size, mobile-friendly room URLs for QA and cross-device testing.
+
 Docs: https://notesqr.com/docs  
 Changelog: https://notesqr.com/changelog
