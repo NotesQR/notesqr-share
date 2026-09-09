@@ -276,12 +276,18 @@ export async function runSend(filePaths, flags) {
     const batches = chunkWireItems(fileMeta);
     for (let i = 0; i < batches.length; i++) {
       try {
-        if (i === 0) conn.send({ 'webrtc-files': batches[i] });
-        else conn.send({ 'webrtc-file-add': batches[i] });
+        // Always webrtc-files for the join catalog (never webrtc-file-add) so
+        // guests can seal mid-session adds for ephemeral rooms.
+        conn.send({ 'webrtc-files': batches[i] });
       } catch (err) {
         console.error(`[notesqr] roster batch failed: ${err.message}`);
         break;
       }
+    }
+    try {
+      conn.send({ 'webrtc-catalog-complete': true });
+    } catch {
+      /* */
     }
   };
 

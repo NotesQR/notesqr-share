@@ -390,16 +390,34 @@ export async function runRecv(roomInput, flags) {
 
   let files = null;
   let welcomed = false;
+  let catalogComplete = false;
 
   const sessionReady = new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error('no welcome/file list from host (is the sender still online?)')),
       30_000
     );
+    let idleSeal = null;
+    const settle = () => {
+      clearTimeout(timer);
+      if (idleSeal) clearTimeout(idleSeal);
+      resolve();
+    };
     const check = () => {
-      if (welcomed && Array.isArray(files)) {
-        clearTimeout(timer);
-        resolve();
+      // Empty catalog is valid once complete; otherwise need at least a files array.
+      if (!welcomed) return;
+      if (catalogComplete) {
+        if (!Array.isArray(files)) files = [];
+        settle();
+        return;
+      }
+      if (Array.isArray(files)) {
+        // Legacy hosts: settle after a short quiet period following the last batch.
+        if (idleSeal) clearTimeout(idleSeal);
+        idleSeal = setTimeout(() => {
+          catalogComplete = true;
+          check();
+        }, 800);
       }
     };
     ctrl.on('data', (msg) => {
@@ -421,8 +439,14 @@ export async function runRecv(roomInput, flags) {
         files = mergeFileList(files, msg['webrtc-files']);
         check();
       }
-      if (Array.isArray(msg['webrtc-file-add'])) {
+      // Join overflow from legacy hosts only — ignore after catalog is sealed.
+      if (Array.isArray(msg['webrtc-file-add']) && !catalogComplete) {
         files = mergeFileList(files, msg['webrtc-file-add']);
+        check();
+      }
+      if (msg['webrtc-catalog-complete']) {
+        catalogComplete = true;
+        if (!Array.isArray(files)) files = [];
         check();
       }
       if (msg['webrtc-file-queued']) {
@@ -440,9 +464,6 @@ export async function runRecv(roomInput, flags) {
   if (password) connectPayload.password = sha256Hex(`notesqr:v1:${roomId}:${password}`);
   ctrl.send({ 'webrtc-connect': connectPayload });
   await sessionReady;
-
-  // Brief window for additional webrtc-file-add batches on large folders.
-  await new Promise((r) => setTimeout(r, 500));
 
   if (!files?.length) {
     console.error('[notesqr] host has no files');
