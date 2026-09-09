@@ -10,6 +10,7 @@ import {
 import { reportUsage } from './usage.mjs';
 import { printShareBanner } from './share-banner.mjs';
 import { collectSendEntries } from './paths.mjs';
+import { resolveSendRoomId, claimTokenForRoom } from './premium.mjs';
 import {
   HIGH_WATER,
   LOW_WATER,
@@ -117,7 +118,7 @@ export async function runSend(filePaths, flags) {
 
   const hostName = flags.name || process.env.NOTESQR_NAME || 'NotesQR CLI';
   const password = flags.password || null;
-  const roomId = flags.room || generateRoomId();
+  const roomId = await resolveSendRoomId(flags, generateRoomId);
   const passwordHashV1 = password ? sha256Hex(`notesqr:v1:${roomId}:${password}`) : null;
   const passwordHashLegacy = password ? sha256Hex(password) : null;
 
@@ -132,7 +133,8 @@ export async function runSend(filePaths, flags) {
   }));
 
   const iceServers = await getIceServers();
-  const host = new Peer(roomId, peerOpts(iceServers));
+  const claimToken = await claimTokenForRoom(roomId);
+  const host = new Peer(roomId, { ...peerOpts(iceServers), claimToken });
   await once(host, 'open', CONNECT_TIMEOUT_MS);
 
   const url = `${SHARE_ORIGIN}/${roomId}`;
@@ -150,10 +152,12 @@ export async function runSend(filePaths, flags) {
     note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online.',
     support: {
       ask_user:
-        'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online.',
+        'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online. Want an exclusive custom room name (lifetime or subscription)? NotesQR Premium — buy on the web, then import your license file here or in the desktop/extension sender.',
       donate_url: `${SHARE_ORIGIN}/donate`,
       paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
       btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',
+      premium_url: `${SHARE_ORIGIN}/premium`,
+      premium_info_url: `${SHARE_ORIGIN}/premium/info`,
     },
   };
 

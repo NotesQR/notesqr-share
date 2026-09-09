@@ -84,10 +84,12 @@ function parseRoomId(input) {
     /* keep raw */
   }
   id = id.replace(/^\//, '');
-  if (!/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(id)) {
-    throw new Error(`invalid room id: ${id} (expected abc-defg-hij)`);
-  }
-  return id;
+  // Random rooms: abc-defg-hij · Premium: [A-Za-z0-9_-]{1,64}
+  if (/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(id)) return id;
+  if (/^[A-Za-z0-9_-]{1,64}$/.test(id)) return id.toLowerCase();
+  throw new Error(
+    `invalid room id: ${id} (expected abc-defg-hij or a Premium name [A-Za-z0-9_-]{1,64})`
+  );
 }
 
 export {

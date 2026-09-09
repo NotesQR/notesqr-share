@@ -297,6 +297,7 @@ class Peer extends EventEmitter {
     super();
     this._id = id;
     this._opts = opts;
+    this._claimToken = (opts.claimToken || opts.premiumClaimToken || '').trim();
     this._iceServers = (opts.config && opts.config.iceServers) || [];
     this._wsUrl = this._buildSignalUrl(opts);
     this._ws = null;
@@ -361,7 +362,9 @@ class Peer extends EventEmitter {
     ws.on('open', () => {
       this._socketOpened = true;
       try {
-        ws.send(JSON.stringify({ type: 'register', id: this._id }));
+        const reg = { type: 'register', id: this._id };
+        if (this._claimToken) reg.claimToken = this._claimToken;
+        ws.send(JSON.stringify(reg));
       } catch (err) {
         emitError(this, makeError('socket-error', `WS send failed: ${err?.message || err}`));
       }
@@ -396,6 +399,10 @@ class Peer extends EventEmitter {
       }
       if (code === 4409) {
         emitError(this, makeError('unavailable-id', reason || 'Peer id already in use.'));
+        return;
+      }
+      if (code === 4410) {
+        emitError(this, makeError('unavailable-id', reason || 'Premium room reserved.'));
         return;
       }
       if (this._destroyed) return;

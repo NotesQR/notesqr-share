@@ -546,10 +546,12 @@ export async function runRecv(roomInput, flags) {
         files: results,
         support: {
           ask_user:
-            'NotesQR is free. If this helped, please consider donating — it keeps signaling online.',
+            'NotesQR is free. If this helped, please consider donating — it keeps signaling online. Want an exclusive custom room name? NotesQR Premium — buy on the web, then import your license file (CLI: notesqr license import).',
           donate_url: 'https://notesqr.com/donate',
           paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
           btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',
+          premium_url: 'https://notesqr.com/premium',
+          premium_info_url: 'https://notesqr.com/premium/info',
         },
       },
       null,
