@@ -31,7 +31,7 @@ CLI + MCP for [NotesQR](https://notesqr.com). Same rooms as the browser app. Bot
   <img src="media/demo-web-20260818.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800">
 </p>
 
-**Current release: 2.1.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
+**Current release: 2.1.2** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
 
 ---
 
@@ -56,6 +56,21 @@ npm install
 node cli/notesqr.mjs send ./file.pdf --once
 node cli/notesqr.mjs recv <url> -o ./out
 ```
+
+
+## Premium rooms
+
+Import a license bought on the web (`notesqr.com/premium`), then `send` hosts that exclusive room by default:
+
+```bash
+npx -y github:NotesQR/notesqr-share license import ./my-room.nql
+npx -y github:NotesQR/notesqr-share send ./file.pdf --once
+npx -y github:NotesQR/notesqr-share send ./file.pdf --random-room --once
+```
+
+Hosting a reserved Premium name requires the license claim token (built into current CLI). Guests joining do not need Premium. Mid-session file adds are a **web/desktop** Premium feature; this CLI hosts a fixed file set per `send` invocation.
+
+Guide: https://notesqr.com/premium/info
 
 ### Folders
 
