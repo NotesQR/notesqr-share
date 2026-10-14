@@ -26,6 +26,11 @@ function parseArgs(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === '--') {
+      // End of options: everything after is positional (paths / room may start with "-").
+      positional.push(...argv.slice(i + 1));
+      break;
+    }
     if (a === '--password') flags.password = argv[++i];
     else if (a === '--name') flags.name = argv[++i];
     else if (a === '--room') flags.room = argv[++i];
@@ -70,6 +75,8 @@ Premium (buy on the web only — CLI only imports a license you already have):
   Later "send" uses your Premium room by default.
   Config: ${licensePath()}
   Env: NOTESQR_ROOM, NOTESQR_LICENSE_FILE, NOTESQR_CONFIG_DIR, NOTESQR_USE_RANDOM_ROOM=1
+  NOTESQR_PASSWORD  Room password (keeps it out of the process list; same as --password)
+  Use "--" to end options, e.g. notesqr send -- -weird-name.txt
   Guide: https://notesqr.com/premium/info
 
 Both peers must stay connected until the download finishes.
@@ -114,6 +121,10 @@ async function runLicense(sub, rest) {
 
 async function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
+  // Prefer NOTESQR_PASSWORD over --password so the secret stays out of argv / ps.
+  if (flags.password == null && process.env.NOTESQR_PASSWORD) {
+    flags.password = process.env.NOTESQR_PASSWORD;
+  }
   if (flags.help || positional.length === 0) {
     usage();
     process.exit(flags.help ? 0 : 1);

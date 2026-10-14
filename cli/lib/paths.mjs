@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs';
+import { mkdirSync, openSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 const MAX_PATH_LEN = 4096;
@@ -76,4 +76,51 @@ export function safeJoinOut(outDir, relPath) {
     throw new Error(`path escapes output dir: ${relPath}`);
   }
   return target;
+}
+
+/** `a/b.txt` + 2 → `a/b (2).txt`; dotfiles keep the whole name as stem (`.rc (1)`). */
+export function withConflictSuffix(filePath, n) {
+  if (!n) return filePath;
+  const dir = dirname(filePath);
+  const base = basename(filePath);
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+  return join(dir, `${stem} (${n})${ext}`);
+}
+
+/**
+ * Create `filePath` exclusively (O_CREAT|O_EXCL: never overwrites, never follows a
+ * symlink at the final component). On conflict tries `name (1).ext`, `(2)`, …
+ * Returns { fd, path }.
+ */
+export function openExclusive(filePath, maxTries = 10_000) {
+  for (let n = 0; n < maxTries; n++) {
+    const candidate = withConflictSuffix(filePath, n);
+    try {
+      const fd = openSync(candidate, 'wx', 0o644);
+      return { fd, path: candidate };
+    } catch (err) {
+      if (err?.code === 'EEXIST') continue;
+      throw err;
+    }
+  }
+  throw new Error(`too many name conflicts for ${filePath}`);
+}
+
+/**
+ * mkdir -p the parent of `target` and make sure the real (symlink-resolved)
+ * parent is still inside the real `outDir`. Guards against pre-existing
+ * symlinked folders redirecting writes elsewhere.
+ */
+export function ensureParentInside(outDir, target) {
+  const root = resolve(outDir);
+  mkdirSync(root, { recursive: true });
+  const parent = dirname(target);
+  mkdirSync(parent, { recursive: true });
+  const realRoot = realpathSync(root);
+  const realParent = realpathSync(parent);
+  if (realParent !== realRoot && !realParent.startsWith(realRoot + sep)) {
+    throw new Error(`path escapes output dir via symlink: ${target}`);
+  }
 }

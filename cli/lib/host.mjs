@@ -12,7 +12,6 @@ import { printShareBanner } from './share-banner.mjs';
 import { collectSendEntries } from './paths.mjs';
 import { resolveSendRoomId, claimTokenForRoom } from './premium.mjs';
 import {
-  HIGH_WATER,
   LOW_WATER,
   OUTBOUND_BYTES_FLOOR,
   OUTBOUND_CONCURRENCY_BASE,
@@ -22,31 +21,30 @@ import {
   initialChunkSize,
   nextSmallerChunk,
   isMessageTooLargeError,
+  awaitDrain,
 } from './transfer.mjs';
 
 function sha256Hex(text) {
   return createHash('sha256').update(String(text), 'utf8').digest('hex');
 }
 
-function awaitDrain(dc) {
-  if (dc.bufferedAmount < HIGH_WATER) return Promise.resolve();
+/** Wait until every queued byte has left the channel, so closing it does not drop the tail. */
+async function awaitFlushed(dc, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  while (dc.readyState === 'open' && dc.bufferedAmount > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/** Wait for the receiver to close the link after `end` (it does once all bytes land). */
+function awaitPeerClose(conn, timeoutMs = 30000) {
+  if (!conn?.open) return Promise.resolve();
   return new Promise((resolve) => {
-    const cleanup = () => {
-      dc.removeEventListener('bufferedamountlow', onResolve);
-      dc.removeEventListener('close', onResolve);
-      dc.removeEventListener('error', onResolve);
-    };
-    const onResolve = () => {
-      cleanup();
+    const t = setTimeout(resolve, timeoutMs);
+    conn.once('close', () => {
+      clearTimeout(t);
       resolve();
-    };
-    dc.addEventListener('bufferedamountlow', onResolve);
-    dc.addEventListener('close', onResolve);
-    dc.addEventListener('error', onResolve);
-    if (dc.bufferedAmount < HIGH_WATER || dc.readyState !== 'open') {
-      cleanup();
-      resolve();
-    }
+    });
   });
 }
 
@@ -103,6 +101,7 @@ async function streamFileRaw(conn, filePath, meta) {
     }
     await awaitDrain(dc);
     dc.send(JSON.stringify({ type: 'end' }));
+    await awaitFlushed(dc);
     process.stderr.write(`\r[notesqr] sent ${meta.name} (${meta.size} bytes)\n`);
   } finally {
     await fh.close();
@@ -151,8 +150,13 @@ export async function runSend(filePaths, flags) {
     })),
     note: 'Keep this process running. Receiver must open the URL (or notesqr recv) while online.',
     support: {
-      ask_user:
-        'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online. Want an exclusive custom room name (lifetime or subscription)? NotesQR Premium — buy on the web, then import your license file here or in the desktop/extension sender.',
+      // Omitted under MCP: tool results must not carry instructions for the host agent.
+      ...(process.env.NOTESQR_MCP === '1'
+        ? {}
+        : {
+            ask_user:
+              'NotesQR is free. If this helped, please consider donating — it keeps the relays and signaling online. Want an exclusive custom room name (lifetime or subscription)? NotesQR Premium — buy on the web, then import your license file here or in the desktop/extension sender.',
+          }),
       donate_url: `${SHARE_ORIGIN}/donate`,
       paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
       btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',
@@ -338,6 +342,7 @@ export async function runSend(filePaths, flags) {
       await once(raw, 'open', CONNECT_TIMEOUT_MS);
       raw.on('data', () => {});
       await streamFileRaw(raw, file.path, file);
+      await awaitPeerClose(raw);
       completed.add(file.id);
     } finally {
       try {

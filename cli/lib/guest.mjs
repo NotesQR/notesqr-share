@@ -1,11 +1,16 @@
 import { createHash } from 'node:crypto';
-import { createWriteStream, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createWriteStream, unlink } from 'node:fs';
 import { Peer, once } from './peer.mjs';
 import { fetchUuid, getIceServers, peerOpts, parseRoomId } from './ice.mjs';
 import { reportUsage } from './usage.mjs';
 import { getIcePath } from './ice-path.mjs';
-import { pathBasename, safeJoinOut, sanitizeRelPath } from './paths.mjs';
+import {
+  ensureParentInside,
+  openExclusive,
+  pathBasename,
+  safeJoinOut,
+  sanitizeRelPath,
+} from './paths.mjs';
 import {
   CONNECT_TIMEOUT_MS,
   STALL_FIRST_BYTE_MS,
@@ -98,6 +103,8 @@ function receiveOneFile(conn, { outDir, fileMeta }) {
   return new Promise((resolve, reject) => {
     let writeStream = null;
     let expected = Number(fileMeta.size) || 0;
+    // Hard cap from the announced size; a host may not stream more than it declared.
+    let limit = expected > 0 ? expected : Infinity;
     let transferred = 0;
     let name = fileMeta.name;
     let relPath = sanitizeRelPath(fileMeta.path) || sanitizeRelPath(fileMeta.name) || name;
@@ -137,6 +144,7 @@ function receiveOneFile(conn, { outDir, fileMeta }) {
       endStream(writeStream)
         .catch(() => {})
         .then(() => {
+          if (err?.code === 'NQ_SIZE_EXCEEDED' && outPath) unlink(outPath, () => {});
           if (err) {
             err.duration_ms = stats.duration_ms;
             err.bps = stats.bps;
@@ -161,6 +169,14 @@ function receiveOneFile(conn, { outDir, fileMeta }) {
         const buf = toBuffer(raw);
         if (!writeStream) {
           finish(new Error('binary before header'));
+          return;
+        }
+        if (transferred + buf.length > limit) {
+          const err = new Error(
+            `received more bytes than announced for ${name} (${transferred + buf.length} > ${limit})`
+          );
+          err.code = 'NQ_SIZE_EXCEEDED';
+          finish(err);
           return;
         }
         writeStream.write(buf);
@@ -195,15 +211,26 @@ function receiveOneFile(conn, { outDir, fileMeta }) {
           sanitizeRelPath(data.name) ||
           sanitizeRelPath(relPath) ||
           name;
-        expected = Number(data.size) || expected || 0;
+        if (writeStream) {
+          finish(new Error('duplicate header'));
+          return;
+        }
+        const announced = data.size == null || data.size === '' ? NaN : Number(data.size);
+        if (Number.isFinite(announced) && announced >= 0) {
+          expected = announced;
+          limit = announced;
+        }
         try {
-          outPath = safeJoinOut(outDir, relPath);
+          const target = safeJoinOut(outDir, relPath);
+          ensureParentInside(outDir, target);
+          // 'wx': never overwrite, never follow a symlink; conflicts → "name (1).ext".
+          const { fd, path } = openExclusive(target);
+          outPath = path;
+          writeStream = createWriteStream(path, { fd });
         } catch (err) {
           finish(err);
           return;
         }
-        mkdirSync(dirname(outPath), { recursive: true });
-        writeStream = createWriteStream(outPath);
         transferred = 0;
         gotByte = false;
         lastByteAt = Date.now();
@@ -566,8 +593,13 @@ export async function runRecv(roomInput, flags) {
         room: roomId,
         files: results,
         support: {
-          ask_user:
-            'NotesQR is free. If this helped, please consider donating — it keeps signaling online. Want an exclusive custom room name? NotesQR Premium — buy on the web, then import your license file (CLI: notesqr license import).',
+          // Omitted under MCP: tool results must not carry instructions for the host agent.
+          ...(process.env.NOTESQR_MCP === '1'
+            ? {}
+            : {
+                ask_user:
+                  'NotesQR is free. If this helped, please consider donating — it keeps signaling online. Want an exclusive custom room name? NotesQR Premium — buy on the web, then import your license file (CLI: notesqr license import).',
+              }),
           donate_url: 'https://notesqr.com/donate',
           paypal_url: 'https://www.paypal.com/donate/?hosted_button_id=C9Y6XMERX2DPY',
           btc_address: 'bc1qvhzknu5a6st7k9rj8vatz56xcs6n8krzdm5axh',

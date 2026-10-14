@@ -31,7 +31,7 @@ CLI + MCP for [NotesQR](https://notesqr.com). Same rooms as the browser app. Bot
   <img src="media/demo-web-20260818.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800">
 </p>
 
-**Current release: 2.1.2** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
+**Current release: 2.2.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
 
 ---
 
@@ -102,6 +102,8 @@ Agent tools `notesqr_p2p_send` / `notesqr_p2p_recv` — same P2P rooms, no store
 }
 ```
 
+MCP file access is scoped: `notesqr_p2p_send` only reads paths inside `NOTESQR_MCP_ROOTS` (path-delimited list; default: the server's working directory) and always refuses secret locations such as `~/.ssh`, `.env*` or private keys. Add `"env": { "NOTESQR_MCP_ROOTS": "/home/you/Documents" }` to the server entry to share files from elsewhere. `notesqr_p2p_recv` never overwrites existing files and refuses `/` or your home folder itself as `output_dir`.
+
 Docs: [notesqr.com/docs](https://notesqr.com/docs) · Agent hints: [notesqr.com/llms.txt](https://notesqr.com/llms.txt)
 
 ---
@@ -136,6 +138,15 @@ TURN is a **fallback only** when a direct path is blocked.
 4. Bytes go peer-to-peer (signaling + optional TURN only)
 
 This is **not** an HTTP store-and-forward upload API. If the sender process exits before the download finishes, the transfer stops.
+
+---
+
+## What’s new in 2.2.0
+
+- **Large files no longer stall** — sends paused forever around 40% of files over ~10 MB because the Node WebRTC binding never emits `bufferedamountlow`; the sender now polls the buffer (20 MB in ~1–2 s, 100 MB in ~3 s locally)
+- **No truncated tails** — the sender waits for the receiver to close the link before exiting (`--once`)
+- **Safer receive** — never overwrites existing files (`name (1).ext`), aborts if a peer sends more bytes than announced
+- **Safer MCP** — scoped file access (`NOTESQR_MCP_ROOTS`), password passed via environment (`NOTESQR_PASSWORD`), `--` ends option parsing; MCP send accepts `room`, `license_path`, `random_room`
 
 ---
 

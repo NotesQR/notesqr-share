@@ -94,3 +94,34 @@ export function chunkWireItems(items, budget = WIRE_JSON_BUDGET) {
   if (cur.length) batches.push(cur);
   return batches;
 }
+
+/** Poll interval for {@link awaitDrain}; node WebRTC (@roamhq/wrtc) never fires bufferedamountlow. */
+export const DRAIN_POLL_MS = 25;
+
+/**
+ * Resolve once the channel can take more data: bufferedAmount back under `lowWater`
+ * (after crossing `highWater`), or the channel stopped being open. Listens for
+ * `bufferedamountlow` but also polls, because some implementations never emit it —
+ * waiting on the event alone stalled every CLI send once ~4 MiB was queued.
+ */
+export function awaitDrain(dc, { highWater = HIGH_WATER, lowWater = LOW_WATER, pollMs = DRAIN_POLL_MS } = {}) {
+  if (dc.bufferedAmount < highWater || dc.readyState !== 'open') return Promise.resolve();
+  return new Promise((resolve) => {
+    let timer = null;
+    const done = () => {
+      clearInterval(timer);
+      dc.removeEventListener?.('bufferedamountlow', check);
+      dc.removeEventListener?.('close', done);
+      dc.removeEventListener?.('error', done);
+      resolve();
+    };
+    function check() {
+      if (dc.readyState !== 'open' || dc.bufferedAmount <= lowWater) done();
+    }
+    dc.addEventListener?.('bufferedamountlow', check);
+    dc.addEventListener?.('close', done);
+    dc.addEventListener?.('error', done);
+    timer = setInterval(check, pollMs);
+    check();
+  });
+}
