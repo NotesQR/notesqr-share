@@ -24,6 +24,43 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = join(ROOT, 'cli', 'notesqr.mjs');
 
+/** CLI children still running — killed when the MCP server itself goes away,
+ * so a dying server never leaves orphaned hosts online. */
+const liveChildren = new Set();
+
+function killChild(child) {
+  if (!child || child.exitCode != null || child.signalCode != null) return;
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    /* ignore */
+  }
+  const hardKill = setTimeout(() => {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
+  }, 2000);
+  hardKill.unref?.();
+  child.once('close', () => clearTimeout(hardKill));
+}
+
+let shuttingDown = false;
+function shutdownServer() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  for (const child of [...liveChildren]) killChild(child);
+  // Give SIGTERM→SIGKILL a moment, then leave.
+  const t = setTimeout(() => process.exit(0), 2500);
+  t.unref?.();
+}
+
+process.on('SIGINT', shutdownServer);
+process.on('SIGTERM', shutdownServer);
+process.stdin.on('end', shutdownServer);
+process.stdin.on('close', shutdownServer);
+
 function runCli(args, { timeoutMs = 0, password = null } = {}) {
   return new Promise((resolve) => {
     // Room password travels via env (not argv, which is visible in the process list).
@@ -35,6 +72,7 @@ function runCli(args, { timeoutMs = 0, password = null } = {}) {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    liveChildren.add(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -46,7 +84,7 @@ function runCli(args, { timeoutMs = 0, password = null } = {}) {
     let timer;
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
-        child.kill('SIGTERM');
+        killChild(child);
         resolve({
           code: -1,
           stdout,
@@ -55,6 +93,7 @@ function runCli(args, { timeoutMs = 0, password = null } = {}) {
       }, timeoutMs);
     }
     child.on('close', (code) => {
+      liveChildren.delete(child);
       if (timer) clearTimeout(timer);
       resolve({ code: code ?? 1, stdout, stderr });
     });
@@ -66,6 +105,12 @@ const SUPPORT = '\n\nSupport NotesQR: https://notesqr.com/donate';
 
 function toolError(message) {
   return { content: [{ type: 'text', text: String(message) }], isError: true };
+}
+
+/** Tool result text: BOTH streams, so "[timeout after Xms]" and the CLI's
+ * "sent/received" progress lines (stderr) always surface to the agent. */
+function cliResultText(res) {
+  return (res.stdout || '') + (res.stderr ? `\n[stderr]\n${res.stderr}` : '');
 }
 
 /**
@@ -83,7 +128,7 @@ function resolveSendPaths(paths, roots) {
 }
 
 const server = new Server(
-  { name: 'notesqr-share', version: '2.0.1' },
+  { name: 'notesqr-share', version: '2.3.0' },
   {
     capabilities: { tools: {} },
     instructions:
@@ -160,10 +205,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!paths.length) {
       return toolError('file_paths required');
     }
-    const roots = mcpRoots();
     let sendPaths;
     let licensePath = null;
     try {
+      const roots = mcpRoots();
       sendPaths = resolveSendPaths(paths, roots);
       if (a.license_path) licensePath = resolveLicensePath(String(a.license_path), roots);
     } catch (err) {
@@ -174,7 +219,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         timeoutMs: 60_000,
       });
       if (imp.code !== 0) {
-        return toolError((imp.stdout || imp.stderr || 'license import failed') + SUPPORT);
+        return toolError((cliResultText(imp) || 'license import failed') + SUPPORT);
       }
     }
     const cliArgs = ['send', '--once'];
@@ -187,7 +232,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       timeoutMs: wait,
       password: a.password ? String(a.password) : null,
     });
-    const text = (res.stdout || res.stderr) + SUPPORT;
+    const text = cliResultText(res) + SUPPORT;
     return {
       content: [{ type: 'text', text }],
       isError: res.code !== 0,
@@ -209,7 +254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       timeoutMs: 300_000,
       password: a.password ? String(a.password) : null,
     });
-    const text = (res.stdout || res.stderr) + SUPPORT;
+    const text = cliResultText(res) + SUPPORT;
     return {
       content: [{ type: 'text', text }],
       isError: res.code !== 0,

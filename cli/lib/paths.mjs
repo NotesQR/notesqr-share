@@ -3,7 +3,25 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 const MAX_PATH_LEN = 4096;
 
-/** Sanitize relative path for wire + filesystem writes. */
+/** Windows reserved device names (with or without extension): CON PRN AUX NUL COM1-9 LPT1-9. */
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
+ * Make one path segment safe on every platform (Windows included):
+ * strip <>:"|?* and control chars, trim trailing dots/spaces (EINVAL on
+ * Windows), prefix reserved device names with '_', never return empty.
+ */
+function sanitizeSegment(seg) {
+  let s = String(seg)
+    .replace(/[<>:"|?*]/g, '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[. ]+$/, '');
+  if (!s) s = '_';
+  if (WINDOWS_RESERVED_NAME.test(s)) s = `_${s}`;
+  return s;
+}
+
+/** Sanitize relative path for wire + filesystem writes (Windows-safe per segment). */
 export function sanitizeRelPath(raw) {
   let s = String(raw ?? '')
     .replace(/\\/g, '/')
@@ -13,7 +31,7 @@ export function sanitizeRelPath(raw) {
     .replace(/^\.\/+/, '');
   const parts = s.split('/').filter((p) => p && p !== '.');
   if (!parts.length || parts.some((p) => p === '..')) return '';
-  return parts.join('/').slice(0, MAX_PATH_LEN);
+  return parts.map(sanitizeSegment).join('/').slice(0, MAX_PATH_LEN);
 }
 
 export function pathBasename(relPath) {
@@ -22,11 +40,17 @@ export function pathBasename(relPath) {
   return i >= 0 ? s.slice(i + 1) : s;
 }
 
-function walkDir(rootAbs, dirAbs, out) {
+function walkDir(rootAbs, dirAbs, out, stats = { symlinksSkipped: 0 }) {
   for (const ent of readdirSync(dirAbs, { withFileTypes: true })) {
     if (ent.name === '.' || ent.name === '..') continue;
     const abs = join(dirAbs, ent.name);
-    if (ent.isDirectory()) walkDir(rootAbs, abs, out);
+    if (ent.isSymbolicLink()) {
+      // Symlinks are never followed (loop / escape risk) — count them so the
+      // sender gets one warning instead of silence.
+      stats.symlinksSkipped += 1;
+      continue;
+    }
+    if (ent.isDirectory()) walkDir(rootAbs, abs, out, stats);
     else if (ent.isFile()) {
       // Include top folder name: root=/tmp/foo → foo/sub/a.txt
       const parent = dirname(rootAbs);
@@ -50,6 +74,7 @@ function walkDir(rootAbs, dirAbs, out) {
  */
 export function collectSendEntries(filePaths) {
   const out = [];
+  const stats = { symlinksSkipped: 0 };
   for (const p of filePaths) {
     const abs = resolve(p);
     const st = statSync(abs);
@@ -57,10 +82,15 @@ export function collectSendEntries(filePaths) {
       const name = basename(abs);
       out.push({ abs, path: name, name, size: st.size });
     } else if (st.isDirectory()) {
-      walkDir(abs, abs, out);
+      walkDir(abs, abs, out, stats);
     } else {
       throw new Error(`not a file or directory: ${p}`);
     }
+  }
+  if (stats.symlinksSkipped > 0) {
+    console.error(
+      `[notesqr] Skipped ${stats.symlinksSkipped} symlink(s) (not followed)`
+    );
   }
   if (!out.length) throw new Error('no files found (empty folder?)');
   return out;

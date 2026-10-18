@@ -13,6 +13,7 @@
 
 import { runSend } from './lib/host.mjs';
 import { runRecv } from './lib/guest.mjs';
+import { flushUsage } from './lib/usage.mjs';
 import {
   clearLicenseStore,
   importNqlFile,
@@ -41,8 +42,12 @@ function parseArgs(argv) {
     else if (a === '--no-qr') flags.noQr = true;
     else if (a === '--json') flags.json = true;
     else if (a === '-h' || a === '--help') flags.help = true;
-    else if (a.startsWith('-')) flags[a] = true;
-    else positional.push(a);
+    else if (a.startsWith('-') && a !== '-') {
+      // Typos like --pasword used to be swallowed silently (and their values
+      // treated as files). Fail fast instead.
+      console.error(`Unknown option: ${a} (see --help)`);
+      process.exit(2);
+    } else positional.push(a);
   }
   return { positional, flags };
 }
@@ -69,6 +74,14 @@ Send options:
   --once            Exit after every file has been pulled once
   --no-qr / --json  Output control
 
+Recv options:
+  -o, --out <dir>   Output directory (default: ./notesqr-downloads)
+  --file <name>     Download a single file (by name, id or path)
+  --password x      Room password
+
+Common env:
+  NOTESQR_NAME      Display name for send/recv (same as --name)
+
 Premium (buy on the web only — CLI only imports a license you already have):
   https://notesqr.com/premium
   notesqr license import <license.nql>
@@ -90,7 +103,12 @@ async function runLicense(sub, rest) {
   if (sub === 'import') {
     const file = rest[0];
     if (!file) throw new Error('usage: notesqr license import <file.nql>');
-    const store = await importNqlFile(file);
+    const store = await importNqlFile(file).catch((err) => {
+      if (err?.code === 'ENOENT') {
+        throw new Error(`license file not found: ${file} (check the path to your .nql file)`);
+      }
+      throw err;
+    });
     console.log(`[notesqr] license imported → ${licensePath()}`);
     console.log(
       `[notesqr] active room: ${store.activeRoom} (${store.rooms.length} room(s))`
@@ -127,6 +145,7 @@ async function main() {
   }
   if (flags.help || positional.length === 0) {
     usage();
+    await flushUsage();
     process.exit(flags.help ? 0 : 1);
   }
 
@@ -140,7 +159,10 @@ async function main() {
   if (cmd === 'recv') {
     if (!rest[0]) throw new Error('recv requires room id or URL');
     await runRecv(rest[0], flags);
-    return;
+    // @roamhq/wrtc / ws can leave live handles after a multi-file recv — exit
+    // explicitly (the host already does) so the process never hangs forever.
+    await flushUsage();
+    process.exit(0);
   }
 
   if (cmd === 'license') {
@@ -150,14 +172,18 @@ async function main() {
 
   if (cmd === 'put' || cmd === 'get') {
     console.error(`[notesqr] "${cmd}" is removed. Use "send" / "recv" (WebRTC P2P).`);
+    await flushUsage();
     process.exit(1);
   }
 
   usage();
+  await flushUsage();
   process.exit(1);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error('[notesqr]', err.message || err);
+  // Keep failure telemetry: exit(1) used to kill in-flight usage POSTs.
+  await flushUsage();
   process.exit(1);
 });

@@ -7,7 +7,7 @@ import {
   peerOpts,
   generateRoomId,
 } from './ice.mjs';
-import { reportUsage } from './usage.mjs';
+import { flushUsage, reportUsage } from './usage.mjs';
 import { printShareBanner } from './share-banner.mjs';
 import { collectSendEntries } from './paths.mjs';
 import { resolveSendRoomId, claimTokenForRoom } from './premium.mjs';
@@ -299,12 +299,24 @@ export async function runSend(filePaths, flags) {
     for (const g of guests.values()) sendRosterTo(g.conn);
   };
 
+  let exiting = false;
+
   const maybeOnceExit = () => {
+    if (exiting) return;
     if (flags.once && completed.size >= files.length && outboundActive === 0) {
+      exiting = true;
       console.error('[notesqr] --once: all files transferred, exiting');
-      for (const id of [...zipSendSessions.keys()]) destroyZipSession(id);
-      host.destroy();
-      process.exit(0);
+      // zip_batch: bufferedAmount hitting 0 only means "handed to SCTP", not
+      // delivered — wait for the receiver to close its shared DC (it does once
+      // every byte landed) before destroying, or the tail gets truncated.
+      const zipConns = [...zipSendSessions.values()].map((s) => s.conn).filter(Boolean);
+      Promise.allSettled(zipConns.map((c) => awaitPeerClose(c)))
+        .then(() => {
+          for (const id of [...zipSendSessions.keys()]) destroyZipSession(id);
+          host.destroy();
+          return flushUsage();
+        })
+        .finally(() => process.exit(0));
     }
   };
 
@@ -480,10 +492,12 @@ export async function runSend(filePaths, flags) {
   });
 
   const shutdown = () => {
+    if (exiting) return;
+    exiting = true;
     console.error('\n[notesqr] shutting down');
     for (const id of [...zipSendSessions.keys()]) destroyZipSession(id);
     host.destroy();
-    process.exit(0);
+    flushUsage().finally(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

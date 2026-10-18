@@ -56,15 +56,27 @@ function realOrResolved(p) {
   }
 }
 
-/** Allowed roots from NOTESQR_MCP_ROOTS (path-delimited), default cwd. Realpath'd. */
+/**
+ * Allowed roots from NOTESQR_MCP_ROOTS (path-delimited), default cwd. Realpath'd.
+ * Refuses the implicit-cwd default when cwd is the filesystem root: MCP clients
+ * such as Claude Desktop often spawn servers with cwd '/', and "the allowed
+ * roots" must never silently mean the whole disk.
+ */
 export function mcpRoots(env = process.env, cwd = process.cwd()) {
   const raw = String(env.NOTESQR_MCP_ROOTS || '').trim();
+  if (!raw) {
+    const real = realOrResolved(cwd);
+    if (parse(real).root === real) {
+      throw new Error(
+        "MCP server working directory is '/': set NOTESQR_MCP_ROOTS to the folder(s) NotesQR may read."
+      );
+    }
+    return [real];
+  }
   const list = raw
-    ? raw
-        .split(delimiter)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [cwd];
+    .split(delimiter)
+    .map((s) => s.trim())
+    .filter(Boolean);
   return [...new Set(list.map(realOrResolved))];
 }
 
@@ -87,6 +99,11 @@ export function resolveReadablePath(p, roots) {
   try {
     real = realpathSync(abs);
   } catch {
+    if (!isAbsolute(input)) {
+      throw new Error(
+        `path not found: ${input} — relative paths resolve against the MCP server working directory (${process.cwd()}); pass an absolute path, or set NOTESQR_MCP_ROOTS to the folder(s) NotesQR may read`
+      );
+    }
     throw new Error(`path not found: ${input}`);
   }
   if (isSecretPath(real)) throw new Error(`refusing to read a sensitive path: ${input}`);

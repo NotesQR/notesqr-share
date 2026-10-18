@@ -411,9 +411,23 @@ export async function runRecv(roomInput, flags) {
 
   const ctrl = guest.connect(roomId, { serialization: 'binary', reliable: true });
   ctrl.on('error', (err) => {
+    // peer-unavailable is surfaced once below (friendlier) — don't print it twice.
+    if (err?.type === 'peer-unavailable') return;
     console.error(`[notesqr] control link error: ${err.message}`);
   });
-  await once(ctrl, 'open', CONNECT_TIMEOUT_MS);
+  try {
+    await once(ctrl, 'open', CONNECT_TIMEOUT_MS);
+  } catch (err) {
+    try {
+      guest.destroy();
+    } catch {
+      /* */
+    }
+    if (err?.type === 'peer-unavailable') {
+      throw new Error(`No active sender for room ${roomId} (the sender must stay online)`);
+    }
+    throw err;
+  }
 
   let files = null;
   let welcomed = false;

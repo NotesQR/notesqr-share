@@ -31,7 +31,7 @@ CLI + MCP for [NotesQR](https://notesqr.com). Same rooms as the browser app. Bot
   <img src="media/demo-web-20260818.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800">
 </p>
 
-**Current release: 2.2.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
+**Current release: 2.3.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
 
 ---
 
@@ -140,6 +140,14 @@ TURN is a **fallback only** when a direct path is blocked.
 This is **not** an HTTP store-and-forward upload API. If the sender process exits before the download finishes, the transfer stops.
 
 ---
+
+## What’s new in 2.3.0
+
+- **`recv` exits immediately** after multi-file downloads (previously hung; MCP multi-file receives returned errors after 300 s despite succeeding)
+- **No truncated folder sends** — `--once` now waits for the receiver to close the zip link before exiting
+- **Windows-safe filenames on receive** (reserved device names, invalid characters, trailing dots)
+- **Stricter CLI**: unknown flags error instead of being silently swallowed; friendlier messages (dead room, missing license file); symlinks skipped with a warning
+- **MCP**: tool results include stderr and timeout markers; child transfers are cleaned up when the server exits; a `/` working directory now requires `NOTESQR_MCP_ROOTS`
 
 ## What’s new in 2.2.0
 
