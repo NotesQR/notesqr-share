@@ -128,7 +128,7 @@ function resolveSendPaths(paths, roots) {
 }
 
 const server = new Server(
-  { name: 'notesqr-share', version: '2.3.0' },
+  { name: 'notesqr-share', version: '2.3.1' },
   {
     capabilities: { tools: {} },
     instructions:

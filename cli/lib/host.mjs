@@ -180,6 +180,7 @@ export async function runSend(filePaths, flags) {
     files: files.map(({ relPath, name, size }) => ({ name: relPath || name, size })),
   });
 
+  reportFilesSharedStat(files.length, roomId);
   reportUsage({
     event: 'share',
     room: roomId,

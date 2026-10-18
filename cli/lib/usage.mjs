@@ -33,6 +33,33 @@ export function reportUsage(payload) {
   }
 }
 
+/** Payload for the public staged-files counter (pure, for tests). */
+export function buildStatsPayload(count, room) {
+  const n = Math.min(1000, Math.max(1, Math.floor(Number(count) || 1)));
+  const payload = { action: 'file_shared', source: usageSource(), count: n };
+  const r = String(room || '').toLowerCase();
+  if (/^[a-z0-9_-]{1,64}$/.test(r)) payload.room = r;
+  return payload;
+}
+
+/**
+ * Count staged files on the public /api/stats counter (same semantics as the web
+ * client: files ADDED to a room, not deliveries). Fire-and-forget, flush-tracked.
+ */
+export function reportFilesSharedStat(count, room) {
+  try {
+    const req = fetch(`${SHARE_ORIGIN}/api/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildStatsPayload(count, room)),
+    }).catch(() => {});
+    pendingRequests.add(req);
+    req.finally(() => pendingRequests.delete(req));
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Await in-flight usage POSTs (bounded by maxMs) so process.exit does not drop
  * them — failure events used to be lost because exit(1) killed the fetches.

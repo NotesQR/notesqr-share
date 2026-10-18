@@ -31,7 +31,7 @@ CLI + MCP for [NotesQR](https://notesqr.com). Same rooms as the browser app. Bot
   <img src="media/demo-web-20260818.gif" alt="NotesQR: drop a file, get a QR or link, recipient downloads over WebRTC P2P" width="800">
 </p>
 
-**Current release: 2.3.0** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
+**Current release: 2.3.1** — same transfer engine as the NotesQR web app (adaptive chunks up to 1 MiB, `zip_batch` DataChannel reuse, outbound concurrency 5→32).
 
 ---
 
@@ -140,6 +140,10 @@ TURN is a **fallback only** when a direct path is blocked.
 This is **not** an HTTP store-and-forward upload API. If the sender process exits before the download finishes, the transfer stops.
 
 ---
+
+## What’s new in 2.3.1
+
+- CLI/MCP shares now count on the public files-shared counter (parity with the web client)
 
 ## What’s new in 2.3.0
 
